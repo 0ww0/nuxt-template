@@ -1,0 +1,13 @@
+# Caddy reverse proxy config for dev compose
+# Proxies http://dev.local → Nuxt dev server running on the HOST machine
+#
+# "host.docker.internal" is a special Docker DNS name that resolves
+# to the host machine, allowing the Caddy container to reach
+# the Nuxt dev server running locally via `npm run dev`.
+#
+# Requires hosts file entry:
+#   127.0.0.1  dev.local
+
+http://dev.local {
+	reverse_proxy host.docker.internal:3000
+}

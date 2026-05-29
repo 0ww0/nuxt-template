@@ -1,0 +1,9 @@
+# Caddy reverse proxy config for local development
+# Proxies http://dev.local → Nuxt app (port 3000)
+#
+# Requires hosts file entry:
+#   127.0.0.1  dev.local
+
+http://dev.local {
+	reverse_proxy app:3000
+}
