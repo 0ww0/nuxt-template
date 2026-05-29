@@ -1,38 +1,35 @@
 # ══════════════════════════════════════════════════════════════════
-# DEVELOPMENT Docker Compose — PostgreSQL + Caddy Proxy
+# DEVELOPMENT Docker Compose — PostgreSQL Only
 # ══════════════════════════════════════════════════════════════════
 #
-# Runs PostgreSQL and Caddy in Docker. The Nuxt app runs locally
+# Runs ONLY PostgreSQL in Docker. The Nuxt app runs locally
 # with `npm run dev` for hot-reload and fast iteration.
-# Caddy proxies http://dev.local (port 80) → localhost:3000
-# so you can access the app without a visible port number.
 #
 # Filesystem storage (blob, KV, cache) uses your local .data/
 # directory — no Docker needed for those in development.
 #
-# ── Prerequisites ────────────────────────────────────────────────
-#   Add this line to your hosts file (run as Administrator):
-#     PowerShell:
-#       Add-Content C:\Windows\System32\drivers\etc\hosts "127.0.0.1  dev.local"
-#     Or manually edit: C:\Windows\System32\drivers\etc\hosts
-#
 # ── Quick Start ──────────────────────────────────────────────────
-#   docker compose -f docker-compose.dev.yml up -d     # Start PostgreSQL + Caddy
-#   npm run dev                                         # Start Nuxt locally
-#   Open http://dev.local in your browser               # Access via clean URL
+#   1. Copy .env.example to .env and set:
+#      DATABASE_URL=postgresql://nuxt:nuxt@localhost:5432/nuxtdb
+#
+#   2. Start PostgreSQL:
+#      docker compose -f docker-compose.dev.yml up -d
+#
+#   3. Start Nuxt locally:
+#      npm run dev
+#
+#   4. Open http://localhost:3000
 #
 # ── Other Commands ───────────────────────────────────────────────
-#   docker compose -f docker-compose.dev.yml logs -f         # Follow all logs
-#   docker compose -f docker-compose.dev.yml logs -f db      # Follow DB logs
-#   docker compose -f docker-compose.dev.yml logs -f caddy   # Follow proxy logs
-#   docker compose -f docker-compose.dev.yml ps              # Check status
-#   docker compose -f docker-compose.dev.yml down            # Stop services
-#   docker compose -f docker-compose.dev.yml down -v         # Stop + delete DB data
+#   docker compose -f docker-compose.dev.yml logs -f    # Follow DB logs
+#   docker compose -f docker-compose.dev.yml ps         # Check status
+#   docker compose -f docker-compose.dev.yml down       # Stop PostgreSQL
+#   docker compose -f docker-compose.dev.yml down -v    # Stop + delete DB data
 #
 # ── Access ───────────────────────────────────────────────────────
-#   Nuxt App:  http://dev.local       (via Caddy proxy, port 80)
-#   Nuxt App:  http://localhost:3000  (direct, via npm run dev)
-#   Postgres:  localhost:5432         (user: nuxt, password: nuxt, db: nuxtdb)
+#   Nuxt App:       http://localhost:3000  (via npm run dev)
+#   Nuxt DevTools:  http://localhost:3000  (includes Drizzle Studio)
+#   Postgres:       localhost:5432  (user: nuxt, password: nuxt, db: nuxtdb)
 #
 # ── Environment Variables ────────────────────────────────────────
 #   Set DATABASE_URL in your .env file for the local Nuxt dev server:
@@ -42,34 +39,15 @@
 #   Nuxt app runs outside Docker and connects to the exposed port.
 #
 # ── What runs where in dev? ──────────────────────────────────────
-#   Caddy proxy  → Docker (this file)   — http://dev.local:80 → localhost:3000
 #   PostgreSQL   → Docker (this file)   — localhost:5432
 #   Nuxt app     → Local (npm run dev)  — localhost:3000
+#   DevTools     → Local (via Nuxt)     — includes Drizzle Studio
 #   Blob (fs)    → Local .data/blob/    — no Docker needed
 #   KV (fs)      → Local .data/kv/      — no Docker needed
 #   Cache (fs)   → Local .data/cache/   — no Docker needed
 # ══════════════════════════════════════════════════════════════════
 
 services:
-  # ──────────────────────────────────────────
-  # Caddy Reverse Proxy
-  # Image: caddy:2-alpine (~40MB)
-  # Proxies http://dev.local (port 80) → host.docker.internal:3000
-  # "host.docker.internal" is a special Docker DNS name that
-  # resolves to the host machine, allowing Caddy to reach the
-  # Nuxt dev server running locally via `npm run dev`.
-  # Config file: ./Caddyfile.dev
-  # ──────────────────────────────────────────
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    volumes:
-      - ./Caddyfile.dev:/etc/caddy/Caddyfile:ro  # Dev Caddy config (read-only)
-      - caddy_data_dev:/data
-      - caddy_config_dev:/config
-
   # ──────────────────────────────────────────
   # PostgreSQL 16
   # Image: postgres:16-alpine (~240MB)
@@ -97,8 +75,4 @@ services:
 
 volumes:
   pg_data_dev:
-    driver: local
-  caddy_data_dev:
-    driver: local
-  caddy_config_dev:
     driver: local
