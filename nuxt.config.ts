@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url'
 export default defineNuxtConfig({
   alias: {
     "@": fileURLToPath(new URL("./app", import.meta.url)),
+    "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
+    "@server": fileURLToPath(new URL("./server", import.meta.url)),
     "#images": fileURLToPath(new URL("./app/assets/images", import.meta.url)),
     "#fonts": fileURLToPath(new URL("./app/assets/fonts", import.meta.url)),
     "#css": fileURLToPath(new URL("./app/assets/css", import.meta.url)),
