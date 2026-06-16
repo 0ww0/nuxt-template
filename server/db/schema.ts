@@ -2,3 +2,4 @@
 // Add one re-export line per new table file under ./schema/.
 export * from './schema/user'
 export * from './schema/info'
+export * from './schema/session'

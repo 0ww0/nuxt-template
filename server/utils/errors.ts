@@ -10,3 +10,11 @@ export function notFound(resource: string) {
 export function conflict(message: string) {
   return createError({ statusCode: 409, statusMessage: message })
 }
+
+export function unauthorized(message = 'Authentication required') {
+  return createError({ statusCode: 401, statusMessage: message })
+}
+
+export function forbidden(message = 'You do not have permission to do that') {
+  return createError({ statusCode: 403, statusMessage: message })
+}
