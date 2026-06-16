@@ -6,14 +6,14 @@ import type { User } from '../../db/schema'
 // timestamp; a v2 presenter might nest a `profile` object and use ISO dates.
 // Keeping it here means route handlers stay thin and the contract is explicit.
 export function presentUserV1(user: User) {
-    return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        created_at: user.createdAt.getTime(),
-    }
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    created_at: user.createdAt.getTime(),
+  }
 }
 
 export function presentUserListV1(users: User[]) {
-    return users.map(presentUserV1)
+  return users.map(presentUserV1)
 }

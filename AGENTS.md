@@ -5,6 +5,16 @@ codebase is structured and how to generate a complete CRUD slice for a new
 database table. Follow it literally. The `users` resource is the reference
 implementation — when in doubt, copy its patterns.
 
+> **Data-layer work?** For schema/column changes, migrations, seeding, query
+> authoring, or dev-db operations, use the database skill at
+> `.claude/skills/database/SKILL.md` instead. This file is for building the
+> upper layers (service + presenter + versioned routes) of a CRUD slice.
+>
+> **Singleton resource, or endpoint patterns/validation/versioning in depth?**
+> See the API skill at `.claude/skills/api/SKILL.md`. This file covers the
+> standard *collection* resource (many rows); the API skill covers the
+> *singleton* pattern (one row, get + upsert) and all endpoint conventions.
+
 ---
 
 ## 1. Architecture (read first)
@@ -53,7 +63,10 @@ This project uses **PostgreSQL**. When defining a table, import from
 - Text: `text('col')`; booleans: `boolean('col').notNull().default(false)`
 - Timestamps: `timestamp('created_at', { withTimezone: true }).notNull().defaultNow()`
 - Auto-touch on update: append `.$onUpdate(() => new Date())`
-- Column names are written explicitly in snake_case (e.g. `'created_at'`).
+- Column names: `hub.db.casing` is `'snake_case'`, so you may OMIT the
+  column-name string and let camelCase keys map to snake_case columns
+  (e.g. `ogImage: text()` → `og_image`). Explicit names still work and override.
+  `users` uses explicit names; `infos` uses the no-name style — both are valid.
 
 Mirror `server/db/schema/user.ts` and `server/db/schema/info.ts` exactly.
 
@@ -100,7 +113,7 @@ export const <entity>Repository = {
   },
   async create(data: New<Entity>): Promise<<Entity>> {
     const [row] = await db.insert(schema.<entities>).values(data).returning()
-    return row
+    return row! // INSERT...RETURNING always yields one row (see TS note below)
   },
   async update(id: number, data: Partial<New<Entity>>): Promise<<Entity> | undefined> {
     const [row] = await db.update(schema.<entities>).set(data)
@@ -257,6 +270,15 @@ export default defineEventHandler(async (event) => {
 - **Do not** define a table anywhere except `server/db/schema/<entity>.ts`, and always re-export it from the `server/db/schema.ts` barrel.
 - **Do not** import `@nuxthub/db` outside the repository layer.
 - Use `import.meta` / Nitro auto-imports (`defineEventHandler`, `readValidatedBody`, `getValidatedRouterParams`, `createError`, `setResponseStatus`) — they don't need importing in `server/`.
+
+### TypeScript gotcha (this project has `noUncheckedIndexedAccess`)
+`const [row] = await db…returning()` is typed `T | undefined`. So:
+- Methods that ALWAYS return one row (`create`, `upsert`): `return row!` and
+  declare a non-optional return type (`Promise<<Entity>>`).
+- Methods that MAY find nothing (`findById`, `update` by arbitrary id): keep the
+  return type `Promise<<Entity> | undefined>` and return `row` as-is.
+- At the route, when you know the row exists (e.g. after a `getById` guard),
+  assert at the call site: `present<Entity>V1((await service.update(id, b))!)`.
 
 ---
 

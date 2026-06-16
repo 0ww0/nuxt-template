@@ -4,9 +4,9 @@
 // out of Nitro, swap these for plain Error subclasses.
 
 export function notFound(resource: string) {
-    return createError({ statusCode: 404, statusMessage: `${resource} not found` })
+  return createError({ statusCode: 404, statusMessage: `${resource} not found` })
 }
 
 export function conflict(message: string) {
-    return createError({ statusCode: 409, statusMessage: message })
+  return createError({ statusCode: 409, statusMessage: message })
 }
