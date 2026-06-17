@@ -2,7 +2,7 @@ import type { H3Event } from 'h3'
 import { sessionService } from '../services/session.service'
 import { unauthorized, forbidden } from './errors'
 import type { User } from '../db/schema'
-import type { UserRole } from '../../shared/auth/roles'
+import { roleAtLeast, type UserRole } from '../../shared/auth/roles'
 
 // EDGE / HTTP layer. This is where AUTHORIZATION is enforced (status codes,
 // cookies) — kept out of services so they stay HTTP-agnostic. Call these from
@@ -37,9 +37,19 @@ export async function requireUser(event: H3Event): Promise<User> {
 }
 
 // requireRole(event) → just requires a logged-in user.
-// requireRole(event, 'admin') → requires that role (or one of several).
+// requireRole(event, 'admin') → requires EXACTLY that role (or one of several).
+// Use this for orthogonal roles. For a privilege ladder, prefer requireMinRole.
 export async function requireRole(event: H3Event, ...roles: UserRole[]): Promise<User> {
   const user = await requireUser(event)
   if (roles.length > 0 && !roles.includes(user.role)) throw forbidden()
+  return user
+}
+
+// requireMinRole(event, 'super_admin') → that role OR higher on the ladder.
+// This is the one to use for sensitive actions; a super_admin passes an
+// `admin` check automatically.
+export async function requireMinRole(event: H3Event, min: UserRole): Promise<User> {
+  const user = await requireUser(event)
+  if (!roleAtLeast(user.role, min)) throw forbidden()
   return user
 }

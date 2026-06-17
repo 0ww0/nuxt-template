@@ -1,4 +1,5 @@
 import { db, schema } from '@nuxthub/db'
+import { authService } from '../../services/auth.service'
 
 // DEV-ONLY seed endpoint. Runs in the Nitro context where @nuxthub/db is
 // available. Guard prevents it from ever executing in production.
@@ -8,11 +9,14 @@ export default defineEventHandler(async () => {
     throw createError({ statusCode: 403, statusMessage: 'Seeding is dev-only' })
   }
 
-  // Safe for a dev database only.
+  // Safe for a dev database only. Clear sessions first (FK → users), then the
+  // rest. (Deleting users would cascade to sessions too, but explicit is clearer.)
+  await db.delete(schema.sessions)
   await db.delete(schema.infos)
   await db.delete(schema.users)
 
-  const users = await db
+  // Demo rows for the users CRUD list — no credentials, so they can't log in.
+  const demoUsers = await db
     .insert(schema.users)
     .values([
       { email: 'ada@example.com', name: 'Ada Lovelace' },
@@ -20,6 +24,32 @@ export default defineEventHandler(async () => {
       { email: 'grace@example.com', name: 'Grace Hopper' },
     ])
     .returning()
+
+  // Login-able accounts. Hashing goes through authService so the hash format
+  // lives in exactly one place. `role` is set here because the seeder is a
+  // trusted internal caller — the public /register endpoint can't set it.
+  const adminPassword = 'admin-password-123'
+  const userPassword = 'user-password-123'
+  const superPassword = 'super-password-123'
+
+  const superAdmin = await authService.register({
+    email: 'super@example.com',
+    name: 'Super Admin',
+    password: superPassword,
+    role: 'super_admin',
+  })
+  const admin = await authService.register({
+    email: 'admin@example.com',
+    name: 'Admin User',
+    password: adminPassword,
+    role: 'admin',
+  })
+  const member = await authService.register({
+    email: 'user@example.com',
+    name: 'Regular User',
+    password: userPassword,
+    role: 'user',
+  })
 
   await db.insert(schema.infos).values({
     id: 1, // singleton row (matches infoRepository SINGLETON_ID)
@@ -35,5 +65,16 @@ export default defineEventHandler(async () => {
     copyrightText: '© 2026 Acme Inc.',
   })
 
-  return { seeded: { users: users.length, infos: 1 } }
+  return {
+    seeded: {
+      users: demoUsers.length + 3,
+      infos: 1,
+    },
+    // Returned for convenience — dev-only throwaway credentials.
+    accounts: {
+      superAdmin: { email: superAdmin.email, password: superPassword },
+      admin: { email: admin.email, password: adminPassword },
+      user: { email: member.email, password: userPassword },
+    },
+  }
 })

@@ -41,6 +41,23 @@ schema (server/db/schema/<entity>.ts)         → table definition, re-exported 
 
 ---
 
+### Auth-aware resources
+
+If a resource is owned or must be logged-in-only, do NOT add session logic to
+the service (that would make it touch HTTP). Instead:
+
+1. In the handler, call `const { user } = await requireUserSession(event)` first
+   (auto-401 if absent), then pass `user.id` as an explicit argument to the
+   service — e.g. `postService.create(user.id, body)`.
+2. Keep the service signature actor-explicit (`create(ownerId, input)`) so the
+   tenancy layer can later swap `user.id` for the active `tenantId` without
+   touching callers.
+3. Any table holding a secret (e.g. `passwordHash`) must use a hand-listed
+   presenter that OMITS the secret — never spread-everything.
+
+Full recipe (register/login/logout/me, hashing, errors): see the **auth skill**
+at `.claude/skills/auth/SKILL.md`.
+
 ## 2. Naming conventions
 
 | Thing | Convention | Example (`info` table) |

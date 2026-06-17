@@ -1,4 +1,4 @@
-import type { UserRole } from '~~/shared/auth/roles'
+import { roleAtLeast, type UserRole } from '~~/shared/auth/roles'
 
 // Client-side mirror of the v1 auth presenter shape.
 export interface AuthUser {
@@ -43,6 +43,8 @@ export function useAuth() {
   const isLoggedIn = computed(() => user.value !== null)
   const hasRole = (...roles: UserRole[]) =>
     !!user.value && roles.includes(user.value.role)
+  const hasMinRole = (min: UserRole) =>
+    !!user.value && roleAtLeast(user.value.role, min)
 
-  return { user, isLoggedIn, hasRole, fetchUser, login, logout }
+  return { user, isLoggedIn, hasRole, hasMinRole, fetchUser, login, logout }
 }
