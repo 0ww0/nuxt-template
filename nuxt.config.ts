@@ -47,7 +47,7 @@ export default defineNuxtConfig({
     }
   },
 
-  modules: ['@nuxthub/core'],
+  modules: ['@nuxthub/core', '@pinia/nuxt'],
 
   hub: {
     db: 'postgresql',
