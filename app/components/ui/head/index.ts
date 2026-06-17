@@ -1,0 +1,1 @@
+export { default as UiHead } from './root.vue'

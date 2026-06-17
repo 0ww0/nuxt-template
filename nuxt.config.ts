@@ -26,26 +26,6 @@ export default defineNuxtConfig({
       ]
     }
   },
-  app: {
-    head: {
-      title: 'Nuxt Template',
-      titleTemplate: '%s - Nuxt Template',
-      meta: [
-        { charset: 'utf-8' },
-        { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'description', content: 'Nuxt Template' },
-        { name: 'keywords', content: 'Nuxt Template' },
-        { name: 'author', content: 'Nuxt Template' },
-        { name: 'theme-color', content: '#ffffff', media: '(prefers-color-scheme: light)' },
-        { name: 'theme-color', content: '#0a0a0a', media: '(prefers-color-scheme: dark)' },
-      ],
-      link: [
-        { rel: 'icon', type: 'image/x-icon', href: '/favicon.ico' },
-        { rel: 'icon', type: 'image/png', href: '/favicon.png' },
-        { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
-      ]
-    }
-  },
 
   modules: ['@nuxthub/core', '@pinia/nuxt'],
 
