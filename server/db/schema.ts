@@ -3,3 +3,4 @@
 export * from './schema/user'
 export * from './schema/info'
 export * from './schema/session'
+export * from './schema/passwordResetToken'

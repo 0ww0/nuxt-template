@@ -15,6 +15,13 @@
       "when": 1781615326825,
       "tag": "0001_remarkable_joseph",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781695877874,
+      "tag": "0002_skinny_mastermind",
+      "breakpoints": true
     }
   ]
 }
