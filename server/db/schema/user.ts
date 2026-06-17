@@ -6,12 +6,15 @@ import type { UserRole } from '../../../shared/auth/roles'
 //
 // CHANGED: added `role` (NOT NULL, defaults to 'user' so existing rows backfill)
 // and `passwordHash` (nullable — existing rows have none until they set one).
+// CHANGED: added `emailVerifiedAt` (nullable; null = unverified) — a safe NULL
+// add, no backfill needed.
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   role: text('role').$type<UserRole>().notNull().default('user'),
   passwordHash: text('password_hash'),
+  emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true })
     .notNull()
     .defaultNow(),

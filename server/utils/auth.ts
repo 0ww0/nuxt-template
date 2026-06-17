@@ -53,3 +53,12 @@ export async function requireMinRole(event: H3Event, min: UserRole): Promise<Use
   if (!roleAtLeast(user.role, min)) throw forbidden()
   return user
 }
+
+// requireVerifiedUser(event) → logged in AND email-verified. Use to gate
+// actions that must not run for an unconfirmed address (403 if unverified).
+// Authentication (401) is still checked first by requireUser.
+export async function requireVerifiedUser(event: H3Event): Promise<User> {
+  const user = await requireUser(event)
+  if (!user.emailVerifiedAt) throw forbidden('Email not verified')
+  return user
+}

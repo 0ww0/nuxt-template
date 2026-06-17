@@ -2,13 +2,15 @@ import type { User } from '../../db/schema'
 
 // v1 PRESENTER for the authenticated user. Hand-listed (not spread) so the
 // `passwordHash` column can NEVER be serialized into a response. Includes
-// `role` so the client can show/hide UI per role.
+// `role` so the client can show/hide UI per role, and `email_verified` so the
+// client can prompt for / gate on verification.
 export function presentAuthUserV1(user: User) {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
+    email_verified: user.emailVerifiedAt !== null,
     created_at: user.createdAt.getTime(),
   }
 }

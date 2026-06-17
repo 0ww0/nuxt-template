@@ -29,7 +29,13 @@ export const resetPasswordV1Schema = z.object({
   password: z.string().min(8).max(200),
 })
 
+// Email verification: confirm ownership of the address via the emailed token.
+export const verifyEmailV1Schema = z.object({
+  token: z.string().min(1),
+})
+
 export type LoginV1 = z.infer<typeof loginV1Schema>
 export type RegisterV1 = z.infer<typeof registerV1Schema>
 export type ForgotPasswordV1 = z.infer<typeof forgotPasswordV1Schema>
 export type ResetPasswordV1 = z.infer<typeof resetPasswordV1Schema>
+export type VerifyEmailV1 = z.infer<typeof verifyEmailV1Schema>
