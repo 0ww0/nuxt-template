@@ -46,9 +46,10 @@ schema (server/db/schema/<entity>.ts)         → table definition, re-exported 
 If a resource is owned or must be logged-in-only, do NOT add session logic to
 the service (that would make it touch HTTP). Instead:
 
-1. In the handler, call `const { user } = await requireUserSession(event)` first
-   (auto-401 if absent), then pass `user.id` as an explicit argument to the
-   service — e.g. `postService.create(user.id, body)`.
+1. In the handler, call `const user = await requireUser(event)` first (auto-401 if
+   absent), then pass `user.id` as an explicit argument to the service — e.g.
+   `postService.create(user.id, body)`. For a role-gated resource, use
+   `await requireMinRole(event, 'admin')` instead (auto-403 below that rank).
 2. Keep the service signature actor-explicit (`create(ownerId, input)`) so the
    tenancy layer can later swap `user.id` for the active `tenantId` without
    touching callers.
@@ -57,6 +58,10 @@ the service (that would make it touch HTTP). Instead:
 
 Full recipe (register/login/logout/me, hashing, errors): see the **auth skill**
 at `.claude/skills/auth/SKILL.md`.
+
+For role-gating (admin-only, super_admin-only) rather than just logged-in, see
+the **rbac skill** at `.claude/skills/rbac/SKILL.md` — gate the handler with
+`requireMinRole`/`requireRole`.
 
 ## 2. Naming conventions
 

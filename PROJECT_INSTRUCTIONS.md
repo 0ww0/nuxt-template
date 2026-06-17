@@ -15,8 +15,9 @@ without rework. Prefer matching the template over "better" alternatives.
 - NuxtHub (v0.10+) for the backend platform; database via Drizzle ORM.
 - PostgreSQL, `drizzle-orm/pg-core`. Local dev DB runs via `docker-compose.yml`.
 - Zod for validation, shared between client and server.
-- Auth via `nuxt-auth-utils` (sealed-cookie sessions); password hashing with its
-  `hashPassword`/`verifyPassword`. Session secret in `NUXT_SESSION_PASSWORD`.
+- Auth via a DB-backed `sessions` table (token in a hardened httpOnly cookie);
+  password hashing with `node:crypto` scrypt. Roles on the `users.role` column,
+  enforced at the edge via `server/utils/auth.ts`.
 
 ## Architecture — layered, never skip a layer
 ```
@@ -45,9 +46,10 @@ Hard rules:
 - **database skill** (`.claude/skills/database/SKILL.md`) — schema/column
   changes, migrations, seeding, the Drizzle query cookbook, local Postgres ops,
   troubleshooting.
-- **auth skill** (`.claude/skills/auth/SKILL.md`) — signup/login/logout/me,
-  sessions, password hashing, and protecting routes. Session helpers live in
-  handlers; hash/verify in services; never present `passwordHash`.
+- **rbac skill** (`.claude/skills/rbac/SKILL.md`) — roles, the privilege ladder,
+  and gating handlers by role. `requireMinRole` (hierarchical) / `requireRole`
+  (exact) at the edge; client role middleware is UX only; never accept `role`
+  from a public body. 401 = not logged in, 403 = wrong role.
 Consult the relevant doc before writing code; mirror its templates.
 
 ## Choose the resource shape first
@@ -73,10 +75,7 @@ Consult the relevant doc before writing code; mirror its templates.
   the client controls the shape.
 - Status codes: create → 201; delete → 204 + `return null`. Nitro returns 405
   automatically — never write a method switch or 405 branch.
-- Auth: `requireUserSession(event)` (auto-401) at the top of protected handlers;
-  pass `user.id` into the service, never read the session in a service. New
-  `unauthorized` (401) helper in `errors.ts`. Login failures are generic 401s
-  (no user enumeration).
+  
 
 ## NuxtHub specifics (do NOT get these wrong)
 - DB config in `nuxt.config.ts`: `hub.db.dialect = 'postgresql'`,
