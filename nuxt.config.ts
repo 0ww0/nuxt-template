@@ -40,6 +40,9 @@ export default defineNuxtConfig({
   },
 
   nitro: {
+    experimental: {
+      tasks: true,
+    },
     storage: {
       kv: {
         driver: 'fs',
@@ -48,7 +51,10 @@ export default defineNuxtConfig({
       cache: {
         driver: 'fs',
         base: '.data/cache'
-      }
+      },
+    },
+    scheduledTasks: {
+      '0 * * * *': ['auth:cleanup'], // hourly
     }
   },
   runtimeConfig: {

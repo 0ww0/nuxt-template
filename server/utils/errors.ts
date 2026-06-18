@@ -18,3 +18,12 @@ export function unauthorized(message = 'Authentication required') {
 export function forbidden(message = 'You do not have permission to do that') {
   return createError({ statusCode: 403, statusMessage: message })
 }
+
+// tooManyRequests — thrown by the edge rate-limit util, not services.
+// `retryAfter` is a Date so callers can set Retry-After header precisely.
+export function tooManyRequests(retryAfter?: Date) {
+  const msg = retryAfter
+    ? `Too many requests. Try again after ${retryAfter.toUTCString()}.`
+    : 'Too many requests. Please slow down.'
+  return createError({ statusCode: 429, statusMessage: msg })
+}

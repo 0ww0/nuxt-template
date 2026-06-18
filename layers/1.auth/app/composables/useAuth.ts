@@ -7,6 +7,7 @@ export interface AuthUser {
   email: string
   role: UserRole
   email_verified: boolean
+  mfa_enabled: boolean
   created_at: number
 }
 
