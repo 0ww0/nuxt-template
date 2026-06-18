@@ -7,7 +7,7 @@ export const createUserV1Schema = z.object({
 })
 
 // Partial for updates; require at least one field.
-export const updateUserV1Schema = createUserV1Schema.partial().refine(
+export const updateUserV1Schema = createUserV1Schema.partial().strict().refine(
   (v) => Object.keys(v).length > 0,
   { message: 'Provide at least one field to update' },
 )
