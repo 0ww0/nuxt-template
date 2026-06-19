@@ -2,6 +2,11 @@ import { userRepository } from '../repositories/user.repository'
 import { conflict, notFound } from '../utils/errors'
 
 // SERVICE LAYER — business rules. HTTP-agnostic, SHARED across API versions.
+//
+// NOTE: user creation (registration) is intentionally NOT here. All paths that
+// create a user — public self-sign-up and admin provisioning — go through
+// authService.register, which is the only place that hashes passwords. This
+// avoids the footgun of a no-password user being created with a null passwordHash.
 export const userService = {
   list() {
     return userRepository.findAll()
@@ -11,12 +16,6 @@ export const userService = {
     const user = await userRepository.findById(id)
     if (!user) throw notFound('User')
     return user
-  },
-
-  async register(input: { email: string; name: string }) {
-    const existing = await userRepository.findByEmail(input.email)
-    if (existing) throw conflict('Email already in use')
-    return userRepository.create(input)
   },
 
   async update(id: number, input: { email?: string; name?: string }) {

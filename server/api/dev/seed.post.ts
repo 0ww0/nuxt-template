@@ -5,8 +5,8 @@ import { authService } from '../../services/auth.service'
 // available. Guard prevents it from ever executing in production.
 // Trigger:  curl -X POST http://localhost:3000/api/dev/seed
 export default defineEventHandler(async () => {
-  if (!import.meta.dev) {
-    throw createError({ statusCode: 403, statusMessage: 'Seeding is dev-only' })
+  if (!import.meta.dev || process.env.NODE_ENV === 'production') {
+    throw createError({ statusCode: 404 }) // 404 not 403 — don't reveal it exists
   }
 
   // Safe for a dev database only. Clear sessions first (FK → users), then the

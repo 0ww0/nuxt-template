@@ -61,7 +61,8 @@ export default defineNuxtConfig({
     }
   },
   runtimeConfig: {
+    appUrl: process.env.NUXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
     webhookSecret: process.env.NUXT_WEBHOOK_SECRET ?? '',
-    public: { appUrl: process.env.NUXT_PUBLIC_APP_URL ?? 'http://localhost:3000' },
+    public: {},
   },
 })
