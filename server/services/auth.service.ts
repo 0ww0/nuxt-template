@@ -22,9 +22,15 @@ function hashPassword(password: string): string {
 function verifyPassword(password: string, stored: string): boolean {
   const [saltHex, hashHex] = stored.split(':')
   if (!saltHex || !hashHex) return false
-  const derived = scryptSync(password, Buffer.from(saltHex, 'hex'), 64)
-  const hash = Buffer.from(hashHex, 'hex')
-  return derived.length === hash.length && timingSafeEqual(derived, hash)
+  try {
+    const derived = scryptSync(password, Buffer.from(saltHex, 'hex'), 64)
+    const hash = Buffer.from(hashHex, 'hex')
+    return derived.length === hash.length && timingSafeEqual(derived, hash)
+  } catch {
+    // Corrupted stored hash (invalid hex, zero-length salt, etc.) —
+    // treat as a mismatch rather than bubbling up as a 500.
+    return false
+  }
 }
 
 // Fast SHA-256 for one-time tokens (not passwords — these already carry

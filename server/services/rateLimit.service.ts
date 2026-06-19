@@ -9,6 +9,11 @@ import { rateLimitAttemptRepository } from '../repositories/rateLimitAttempt.rep
 //   lockoutMs    — lockout duration on breach (default 15 min)
 //
 // Per-endpoint tighter values are set at the call site in checkRateLimit().
+//
+// ATOMICITY: The repository's `hit()` method collapses the read-decide-write
+// into a single SQL upsert with a CASE expression, eliminating the TOCTOU race
+// that previously allowed concurrent requests at window-expiry to both reset
+// the counter and slip past the threshold.
 
 export interface RateLimitPolicy {
   windowMs?: number
@@ -27,30 +32,29 @@ export const rateLimitService = {
     const maxAttempts = policy.maxAttempts ?? 10
     const lockoutMs = policy.lockoutMs ?? 15 * 60 * 1000
 
+    // ── Fast path: already locked out? ──────────────────────────────
+    // Read-only check — avoids the write cost when the bucket is
+    // already blocked. This is purely an optimisation; correctness
+    // does NOT depend on it (the hit() upsert preserves blockedUntil
+    // when the window hasn't expired).
     const existing = await rateLimitAttemptRepository.findByBucket(bucket)
-    const now = new Date()
-
-    // Already locked out?
-    if (existing?.blockedUntil && existing.blockedUntil > now) {
+    if (existing?.blockedUntil && existing.blockedUntil > new Date()) {
       return { allowed: false, retryAfter: existing.blockedUntil }
     }
 
-    // Window expired → reset and count this as hit #1.
-    const windowExpired =
-      !existing ||
-      existing.windowStart.getTime() + windowMs <= now.getTime()
+    // ── Atomic hit: reset-or-increment in ONE statement ─────────────
+    const row = await rateLimitAttemptRepository.hit(bucket, windowMs)
 
-    const row = windowExpired
-      ? await rateLimitAttemptRepository.resetBucket(bucket, now)
-      : await rateLimitAttemptRepository.increment(bucket, existing.windowStart)
-
-    // Breached → lock.
+    // ── Threshold breached → lock ───────────────────────────────────
     if (row.count > maxAttempts) {
-      const until = new Date(now.getTime() + lockoutMs)
-      await rateLimitAttemptRepository.lockBucket(bucket, until)
+      const until = new Date(Date.now() + lockoutMs)
+      // lockBucket includes a `count > threshold` guard, so a concurrent
+      // request that already reset the window won't apply a stale lock.
+      await rateLimitAttemptRepository.lockBucket(bucket, until, maxAttempts)
       return { allowed: false, retryAfter: until }
     }
 
     return { allowed: true }
   },
 }
+

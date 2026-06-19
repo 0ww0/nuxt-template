@@ -16,7 +16,7 @@ const sendBodySchema = z.object({ userId: z.number().int().positive() })
 export default defineEventHandler(async (event) => {
   const { userId } = await readValidatedBody(event, sendBodySchema.parse)
 
-  await checkRateLimit(event, 'mfa-send', { maxAttempts: 3, windowMs: 10 * 60_000, lockoutMs: 30 * 60_000 })
+  await checkRateLimit(event, 'mfa-send', { maxAttempts: 3, windowMs: 10 * 60_000, lockoutMs: 30 * 60_000 }, String(userId))
 
   const user = await userRepository.findById(userId)
   if (!user || !user.mfaEnabled) throw unauthorized('MFA not enabled for this account')

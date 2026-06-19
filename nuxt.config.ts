@@ -30,7 +30,10 @@ export default defineNuxtConfig({
   modules: ['@nuxthub/core', '@pinia/nuxt'],
 
   hub: {
-    db: 'postgresql',
+    db: {
+      dialect: 'postgresql',
+      casing: 'snake_case',
+    },
     blob: {
       driver: 'fs',
       dir: '.data/blob'
@@ -58,6 +61,7 @@ export default defineNuxtConfig({
     }
   },
   runtimeConfig: {
+    webhookSecret: process.env.NUXT_WEBHOOK_SECRET ?? '',
     public: { appUrl: process.env.NUXT_PUBLIC_APP_URL ?? 'http://localhost:3000' },
   },
 })

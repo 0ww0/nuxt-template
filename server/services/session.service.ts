@@ -26,7 +26,10 @@ export const sessionService = {
       return null
     }
     const user = await userRepository.findById(session.userId)
-    if (!user) return null
+    if (!user) {
+      await sessionRepository.deleteByToken(token) // self-heal orphan session
+      return null
+    }
     return { user, session }
   },
 

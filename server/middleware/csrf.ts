@@ -10,13 +10,37 @@
 
 const PROTECTED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-// Path prefixes exempt from the check, e.g. third-party webhooks that legitimately
-// post from another origin. Add prefixes here as needed.
+// Path prefixes exempt from the origin check because they receive legitimate
+// cross-origin calls from third-party services (e.g. Stripe, GitHub).
+//
+// ⚠ IMPORTANT: Every handler under these prefixes MUST call
+// `requireWebhookSignature(event)` from `server/utils/webhook.ts` at the very
+// top — that verifies the HMAC-SHA256 signature. The early header check below
+// is defense-in-depth, NOT a replacement for per-handler verification.
 const SKIP_PREFIXES: string[] = ['/api/webhooks']
+
+// Name of the header that webhook providers send the HMAC signature in.
+// Handlers can override this per-provider via requireWebhookSignature options,
+// but the middleware-level gate uses this default.
+const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature'
 
 export default defineEventHandler((event) => {
   if (!PROTECTED_METHODS.has(event.method)) return
-  if (SKIP_PREFIXES.some((prefix) => event.path.startsWith(prefix))) return
+
+  if (SKIP_PREFIXES.some((prefix) => event.path.startsWith(prefix))) {
+    // Defense-in-depth: reject webhook requests that don't even carry a
+    // signature header. The real HMAC verification happens in the handler
+    // via requireWebhookSignature(), but this blocks obviously unsigned
+    // requests at the gate (e.g. a browser CSRF or a misconfigured caller).
+    const sig = getRequestHeader(event, WEBHOOK_SIGNATURE_HEADER)
+    if (!sig) {
+      throw createError({
+        statusCode: 401,
+        statusMessage: `Missing ${WEBHOOK_SIGNATURE_HEADER} header`,
+      })
+    }
+    return
+  }
 
   const origin = getRequestHeader(event, 'origin')
   if (!origin) return // non-browser client — not a CSRF vector
@@ -34,3 +58,4 @@ export default defineEventHandler((event) => {
     throw createError({ statusCode: 403, statusMessage: 'Cross-origin request blocked' })
   }
 })
+

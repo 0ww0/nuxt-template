@@ -2,6 +2,13 @@
 // throwing these; the createError() call still produces a proper H3 error so
 // route handlers don't need to translate anything. If you ever move a service
 // out of Nitro, swap these for plain Error subclasses.
+//
+// ⚠ SECURITY: statusMessage is returned VERBATIM to the client. Always use
+// user-facing resource names (e.g. 'User', 'Post') — never internal names
+// that reveal implementation details (e.g. 'Session', 'PasswordResetToken',
+// 'RateLimitAttempt'). For internal-only 404s, prefer a generic message:
+//   throw notFound('Resource')   ✅
+//   throw notFound('MfaCode')    ❌ — leaks internal table/model name
 
 export function notFound(resource: string) {
   return createError({ statusCode: 404, statusMessage: `${resource} not found` })

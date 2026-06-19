@@ -1,8 +1,8 @@
 import { db, schema } from '@nuxthub/db'
-import { lt, and, isNotNull } from 'drizzle-orm'
+import { lt, and, isNotNull, isNull, or } from 'drizzle-orm'
 
-// Nitro scheduled task — runs periodically to prune expired rows.
-// Enable in nuxt.config.ts:
+// Nitro scheduled task — runs hourly to prune expired rows.
+// Scheduled in nuxt.config.ts:
 //
 //   nitro: {
 //     scheduledTasks: {
@@ -10,7 +10,7 @@ import { lt, and, isNotNull } from 'drizzle-orm'
 //     },
 //   }
 //
-// Or trigger ad-hoc in dev:  npx nuxt task run auth:cleanup
+// Ad-hoc in dev:  npx nuxt task run auth:cleanup
 //
 // This task cleans up four categories:
 //  1. Expired sessions         (expired_at < now)
@@ -19,10 +19,16 @@ import { lt, and, isNotNull } from 'drizzle-orm'
 //  4. Expired MFA OTP codes
 //  5. Stale rate-limit buckets (window closed AND not currently locked)
 //
-// NOTE: keeping this in the repository layer would be ideal but Nitro tasks
-// run in the server context where @nuxthub/db IS available, so the direct
-// import here is acceptable for a maintenance-only task. Do not copy this
-// pattern into route handlers or services.
+// ⚠ ARCHITECTURAL EXCEPTION: This file imports @nuxthub/db directly, which
+// violates the "only repositories import @nuxthub/db" rule in AGENTS.md.
+// This is an ACCEPTED ONE-OFF exception because scheduled cleanup tasks are
+// maintenance-only, never called from routes/services, and bulk-deleting
+// expired rows across five tables doesn't warrant five repository methods
+// that exist solely for this task.
+//
+// DO NOT use this as precedent. Route handlers and services MUST go through
+// the repository layer. If you need DB access elsewhere, add a repository
+// method instead.
 
 export default defineTask({
   meta: {
@@ -65,8 +71,8 @@ export default defineTask({
               // window (forgot-password: 60 min). Adjust if you add longer windows.
               lt(schema.rateLimitAttempts.updatedAt, new Date(now.getTime() - 60 * 60_000)),
               // Not currently locked (either never locked, or lock has expired).
-              and(
-                isNotNull(schema.rateLimitAttempts.blockedUntil),
+              or(
+                isNull(schema.rateLimitAttempts.blockedUntil),
                 lt(schema.rateLimitAttempts.blockedUntil, now),
               ),
             ),

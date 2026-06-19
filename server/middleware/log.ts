@@ -8,9 +8,12 @@ export default defineEventHandler((event) => {
   event.node.res.on('finish', () => {
     const duration = Date.now() - start
     const status = event.node.res.statusCode
+    // Log path only — strip query string to avoid leaking sensitive values
+    // (e.g. ?token=… if an endpoint ever accepts secrets via GET params).
     const url = getRequestURL(event)
+    const safePath = `${url.origin}${url.pathname}`
     const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info'
 
-    writeLog(level, `${event.method} ${status} ${url} (${duration}ms)`)
+    writeLog(level, `${event.method} ${status} ${safePath} (${duration}ms)`)
   })
 })

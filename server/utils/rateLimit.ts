@@ -17,28 +17,32 @@ import { tooManyRequests } from './errors'
 // For endpoints with no account key (e.g. /forgot-password), only the IP
 // bucket is checked.
 
-function getClientIp(event: H3Event): string {
-  // In production, Nitro sets x-forwarded-for behind a trusted proxy.
-  // For bare-metal or no proxy, getRequestIP(event, { xForwardedFor: false })
-  // returns the real socket IP. Adjust based on your infra.
-  return getRequestIP(event, { xForwardedFor: true }) ?? 'unknown'
-}
-
 export async function checkRateLimit(
   event: H3Event,
   action: string,
   policy: RateLimitPolicy,
   accountKey?: string, // e.g. email — adds a per-account bucket
 ): Promise<void> {
-  const ip = getClientIp(event)
+  // In production, Nitro sets x-forwarded-for behind a trusted proxy.
+  // For bare-metal or no proxy, use { xForwardedFor: false } instead.
+  const ip = getRequestIP(event, { xForwardedFor: true })
 
-  // Check IP bucket first (fastest reject for scanners).
-  const ipResult = await rateLimitService.check(`${action}:ip:${ip}`, policy)
-  if (!ipResult.allowed) {
-    if (ipResult.retryAfter) {
-      setResponseHeader(event, 'Retry-After', ipResult.retryAfter.toUTCString())
+  if (!ip) {
+    // Can't identify client IP — skip IP bucket, rely on per-account bucket
+    // only. Log so infra can fix the proxy config. DO NOT fall back to a
+    // shared 'unknown' bucket: that would collapse all anonymous traffic
+    // into one bucket and lock everyone out after a handful of attempts.
+    // eslint-disable-next-line no-console
+    console.warn('[rateLimit] could not determine client IP for action:', action)
+  } else {
+    // Check IP bucket first (fastest reject for scanners).
+    const ipResult = await rateLimitService.check(`${action}:ip:${ip}`, policy)
+    if (!ipResult.allowed) {
+      if (ipResult.retryAfter) {
+        event.node.res.setHeader('Retry-After', ipResult.retryAfter.toUTCString())
+      }
+      throw tooManyRequests(ipResult.retryAfter)
     }
-    throw tooManyRequests(ipResult.retryAfter)
   }
 
   // Per-account bucket — tighter policy, useful for account-targeted attacks.
@@ -50,7 +54,7 @@ export async function checkRateLimit(
     })
     if (!acctResult.allowed) {
       if (acctResult.retryAfter) {
-        setResponseHeader(event, 'Retry-After', acctResult.retryAfter.toUTCString())
+        event.node.res.setHeader('Retry-After', acctResult.retryAfter.toUTCString())
       }
       throw tooManyRequests(acctResult.retryAfter)
     }
