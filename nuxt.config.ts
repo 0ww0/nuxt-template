@@ -61,8 +61,14 @@ export default defineNuxtConfig({
     }
   },
   runtimeConfig: {
-    appUrl: process.env.NUXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
     webhookSecret: process.env.NUXT_WEBHOOK_SECRET ?? '',
-    public: {},
+    // appUrl is read by auth.service.ts as `useRuntimeConfig().public.appUrl`
+    // (email reset/verification links), so it MUST live under `public`. It is
+    // the site's own canonical URL — not a secret — so public exposure is fine.
+    // Declaring it here also lets Nuxt's runtime override bind NUXT_PUBLIC_APP_URL
+    // to it (Nuxt only overrides keys already present in the schema).
+    public: {
+      appUrl: process.env.NUXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
+    },
   },
 })
