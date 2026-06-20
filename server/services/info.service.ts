@@ -10,7 +10,6 @@ export const infoService = {
     return info
   },
 
-  // Create-or-update. No "seed first" requirement — the first write creates the row.
   save(data: Partial<NewInfo>) {
     return infoRepository.upsert(data)
   },

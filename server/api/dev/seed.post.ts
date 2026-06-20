@@ -11,8 +11,14 @@ export default defineEventHandler(async () => {
 
   // Safe for a dev database only. Clear sessions first (FK → users), then the
   // rest. (Deleting users would cascade to sessions too, but explicit is clearer.)
+  // The four settings singletons have no FK relationship to users, so order
+  // among them doesn't matter — grouped here for readability.
   await db.delete(schema.sessions)
   await db.delete(schema.infos)
+  await db.delete(schema.seoSettings)
+  await db.delete(schema.analyticsSettings)
+  await db.delete(schema.contactSettings)
+  await db.delete(schema.generalSettings)
   await db.delete(schema.users)
 
   // Demo rows for the users CRUD list — no credentials, so they can't log in.
@@ -51,24 +57,54 @@ export default defineEventHandler(async () => {
     role: 'user',
   })
 
+  // `informations` — trimmed to identity + branding only. author/siteUrl moved
+  // to seo_settings; maintenanceMode/analyticsEnabled moved to their own tables.
   await db.insert(schema.infos).values({
     id: 1, // singleton row (matches infoRepository SINGLETON_ID)
     title: 'My App',
     description: 'A demo application',
     version: '1.0.0',
-    author: 'Acme Inc.',
-    siteUrl: 'https://example.com',
     primaryColor: '#4f46e5',
-    maintenanceMode: false,
-    analyticsEnabled: true,
     tagline: 'Build fast, ship faster',
     copyrightText: '© 2026 Acme Inc.',
+  })
+
+  await db.insert(schema.seoSettings).values({
+    id: 1, // singleton row (matches seoRepository SINGLETON_ID)
+    keywords: 'demo, nuxt, nuxthub',
+    author: 'Acme Inc.',
+    siteUrl: 'https://example.com',
+    privacyPolicyUrl: 'https://example.com/privacy',
+    termsOfServiceUrl: 'https://example.com/terms',
+  })
+
+  await db.insert(schema.analyticsSettings).values({
+    id: 1, // singleton row (matches analyticsRepository SINGLETON_ID)
+    analyticsEnabled: true,
+    googleAnalyticsId: 'G-DEMO12345',
+  })
+
+  await db.insert(schema.contactSettings).values({
+    id: 1, // singleton row (matches contactRepository SINGLETON_ID)
+    email: 'hello@example.com',
+    phone: '+1 555 0100',
+    twitter: 'https://twitter.com/acme',
+    github: 'https://github.com/acme',
+  })
+
+  await db.insert(schema.generalSettings).values({
+    id: 1, // singleton row (matches generalRepository SINGLETON_ID)
+    maintenanceMode: false,
   })
 
   return {
     seeded: {
       users: demoUsers.length + 3,
       infos: 1,
+      seoSettings: 1,
+      analyticsSettings: 1,
+      contactSettings: 1,
+      generalSettings: 1,
     },
     // Returned for convenience — dev-only throwaway credentials.
     accounts: {

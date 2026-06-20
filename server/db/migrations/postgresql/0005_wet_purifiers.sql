@@ -1,1 +1,0 @@
-ALTER TABLE "users" ADD CONSTRAINT "users_role_check" CHECK ("users"."role" IN ('user', 'admin', 'super_admin'));

@@ -4,8 +4,10 @@ const hex = z.string().regex(/^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/, 'Must be a 
 
 // PATCH body contract. `.strict()` rejects unknown keys (id, createdAt, …),
 // which prevents mass-assignment. All fields optional; require at least one.
-// URL-ish fields are kept as plain strings for flexibility — add `.url()` if
-// you want strict URL validation.
+//
+// SPLIT NOTICE: SEO/analytics/contact/maintenance fields moved to their own
+// v1 schemas (seo.schema.ts, analytics.schema.ts, contact.schema.ts,
+// general.schema.ts). This contract is now identity + branding only.
 export const updateInfoV1Schema = z
   .object({
     title: z.string().min(1).optional(),
@@ -16,28 +18,8 @@ export const updateInfoV1Schema = z
     favicon: z.string().nullable().optional(),
     ogImage: z.string().nullable().optional(),
 
-    keywords: z.string().nullable().optional(),
-    author: z.string().nullable().optional(),
-    siteUrl: z.string().nullable().optional(),
-
-    email: z.string().email().nullable().optional(),
-    phone: z.string().nullable().optional(),
-    address: z.string().nullable().optional(),
-
-    twitter: z.string().nullable().optional(),
-    facebook: z.string().nullable().optional(),
-    instagram: z.string().nullable().optional(),
-    linkedin: z.string().nullable().optional(),
-    github: z.string().nullable().optional(),
-
     primaryColor: hex.nullable().optional(),
     accentColor: hex.nullable().optional(),
-
-    privacyPolicyUrl: z.string().nullable().optional(),
-    termsOfServiceUrl: z.string().nullable().optional(),
-
-    maintenanceMode: z.boolean().optional(),
-    analyticsEnabled: z.boolean().optional(),
 
     tagline: z.string().nullable().optional(),
     copyrightText: z.string().nullable().optional(),
