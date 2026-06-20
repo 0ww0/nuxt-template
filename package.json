@@ -17,6 +17,7 @@
     "@pinia/nuxt": "^0.11.3",
     "drizzle-kit": "^0.31.10",
     "drizzle-orm": "^0.45.2",
+    "nodemailer": "^9.0.1",
     "nuxt": "^4.4.8",
     "pinia": "^3.0.4",
     "postgres": "^3.4.9",
@@ -30,6 +31,7 @@
     "@storybook/addon-docs": "^10.4.6",
     "@storybook/vue3-vite": "^10.4.6",
     "@tailwindcss/vite": "^4.3.1",
+    "@types/nodemailer": "^8.0.1",
     "@vitejs/plugin-vue": "^6.0.7",
     "storybook": "^10.4.6",
     "typescript": "^6.0.3"
