@@ -96,12 +96,19 @@ is a barrel that re-exports all of them. NuxtHub reads the barrel to generate
 `@nuxthub/db`. To add a table: create `server/db/schema/<name>.ts`, then add one
 `export * from './schema/<name>'` line to the barrel.
 
-### Generating CRUD with an AI agent
+### The reference resources
 
-`info.ts` is defined but has no repository/service/routes — on purpose. Hand
-`AGENTS.md` to Claude Code / Cursor / any agent and use the prompt at the bottom
-of that file to have it scaffold the full `info` CRUD by mirroring `users`. The
-playbook encodes every convention so the output matches the rest of the project.
+`users` is the **collection** reference (many rows, full CRUD). `info` is the
+**singleton** reference (one config row, get + upsert — `infoService.get` /
+`infoService.save`). Copy whichever shape matches the resource you're adding.
+
+### Adding a new resource
+
+Use the **resource-scaffolder** agent (`.claude/agents/resource-scaffolder.md`):
+it reads AGENTS.md + the api/database skills and generates the full slice
+(schema → repository → service → presenter → versioned routes), then typechecks.
+To do it by hand instead, follow AGENTS.md (collection) or the api skill §2
+(singleton). Either way the conventions are encoded so the output matches the project.
 
 ### Agent references (use the right one)
 
@@ -113,8 +120,15 @@ playbook encodes every convention so the output matches the rest of the project.
 - **`.claude/skills/rate-limit/SKILL.md`** — abuse defense: DB-backed throttling + lockout on the auth routes.
 - **`.claude/skills/account-security/SKILL.md`** — reset / verify-email / MFA: the hashed one-time-secret flows and the mailer seam.
 
-Claude Code auto-discovers the two skills under `.claude/skills/`; other agents
-can read them directly or you can paste them into a prompt.
+### Agents (`.claude/agents/`)
+
+- **`resource-scaffolder`** — generates a complete resource slice by mirroring
+  `users`/`info` and the skills, then runs `db:generate` + `typecheck`.
+- **`convention-reviewer`** — reviews a changeset against the hard rules (layering,
+  thin handlers, no secret leaks, `.strict()` PATCH, no `role` from a body,
+  rate-limit-before-scrypt). Reports only; never edits.
+
+Agents *consume* the skills — the skills stay the single source of truth.
 
 ## Run it (Postgres, dev)
 

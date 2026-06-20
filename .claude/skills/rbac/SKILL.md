@@ -187,7 +187,7 @@ statement — no other layer changes:
 export default defineEventHandler(async (event) => {
   await requireMinRole(event, 'super_admin') // anon → 401, below super_admin → 403
   const body = await readValidatedBody(event, updateInfoV1Schema.parse)
-  return presentInfoV1((await infoService.upsert(body))!)
+  return presentInfoV1((await infoService.save(body))!)   // was infoService.upsert
 })
 ```
 

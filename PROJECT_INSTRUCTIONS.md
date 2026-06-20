@@ -42,6 +42,9 @@ Hard rules:
   Do not use as precedent (see `server/tasks/auth/cleanup.ts`).
 
 ## Where to find the details (Project knowledge)
+- **agents** (`.claude/agents/`) — `resource-scaffolder` (scaffold a full slice)
+  and `convention-reviewer` (check a changeset against the hard rules). Agents use
+  the skills as their source of truth; they don't restate conventions.
 - **AGENTS.md** — end-to-end recipe + copy-paste templates to scaffold a full
   *collection* CRUD slice (many rows). Use it when adding a new resource.
 - **api skill** (`.claude/skills/api/SKILL.md`) — endpoint conventions, the
