@@ -36,6 +36,10 @@ Hard rules:
 - Version the edge, not the core: only `server/api/v{N}/` folders are versioned;
   services and repositories are shared across versions.
 - Validation schemas live in `shared/schemas/v{N}/` so the client can reuse them.
+- Scheduled maintenance tasks under `server/tasks/` may import `@nuxthub/db`
+  directly — a documented exception to "only repositories import @nuxthub/db",
+  allowed because they're maintenance-only and never called from routes/services.
+  Do not use as precedent (see `server/tasks/auth/cleanup.ts`).
 
 ## Where to find the details (Project knowledge)
 - **AGENTS.md** — end-to-end recipe + copy-paste templates to scaffold a full
@@ -50,6 +54,14 @@ Hard rules:
   and gating handlers by role. `requireMinRole` (hierarchical) / `requireRole`
   (exact) at the edge; client role middleware is UX only; never accept `role`
   from a public body. 401 = not logged in, 403 = wrong role.
+- **rate-limit skill** (`.claude/skills/rate-limit/SKILL.md`) — DB-backed
+  throttling + lockout (table → repository → service → `checkRateLimit` edge util),
+  called per-handler before DB/crypto work. Per-IP + per-account buckets; 429 +
+  Retry-After. Not KV, not global middleware.
+- **account-security skill** (`.claude/skills/account-security/SKILL.md`) —
+  password reset, email verification, and email-OTP MFA, all built on one hashed
+  one-time-secret primitive (store the SHA-256, email the raw value once,
+  single-use, expire). Mailer seam in `server/utils/mailer.ts`.
 Consult the relevant doc before writing code; mirror its templates.
 
 ## Choose the resource shape first

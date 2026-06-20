@@ -53,32 +53,41 @@ deprecation date. Adding versions is cheap; keeping them alive forever is not.
 
 ## Folder structure
 
-```
-AGENTS.md                    # playbook: how an AI agent adds a CRUD resource
-PROJECT_INSTRUCTIONS.md      # paste into a Claude Project's custom instructions
-.claude/skills/database/SKILL.md  # database skill: schema, migrations, queries, seeding
-.claude/skills/api/SKILL.md       # api skill: endpoint patterns, singleton resource, validation
-docker-compose.yml           # local dev Postgres (reads POSTGRES_* from .env)
-app/                         # Nuxt 4 client app
-  pages/index.vue            # demo UI; reuses the shared v1 Zod schema
+​```
+AGENTS.md                         # playbook: how an agent adds a CRUD resource
+PROJECT_INSTRUCTIONS.md           # paste into a Claude Project's custom instructions
+.claude/skills/
+  api/SKILL.md                    # endpoint patterns, singleton resource, validation
+  database/SKILL.md               # schema, migrations, queries, seeding
+  auth/SKILL.md                   # DB-backed sessions + scrypt; login/register/logout/me
+  rbac/SKILL.md                   # roles, privilege ladder, requireMinRole/requireRole
+  rate-limit/SKILL.md             # DB-backed throttling + lockout for the auth routes
+docker-compose.yml                # prod stack: Nuxt (node-server) + Postgres + Caddy
+layers/                           # Nuxt layers
+  1.auth/                         # login/register pages, useAuth, auth + role middleware
+  2.admin/                        # admin layout + role-gated admin area
+  3.portal/                       # signed-in user portal (dashboard, etc.)
+app/                              # base Nuxt 4 client app
 server/
   api/
-    v1/users/                # full CRUD: list, create, read, update, delete
-    v2/users/                # /api/v2/users  (GET list — same service, new shape)
-    dev/seed.post.ts         # dev-only seeder (POST /api/dev/seed)
-  services/user.service.ts   # business logic (shared)
-  repositories/user.repository.ts  # Drizzle queries (shared)
+    v1/users/                     # full CRUD reference slice
+    v1/auth/                      # login, register, logout, me, mfa/verify, reset, verify-email
+    v1/admin/                     # role-gated (requireMinRole)
+    v2/users/                     # versioned edge over the shared service
+    dev/seed.post.ts              # dev-only seeder
+  middleware/csrf.ts              # global Origin-check CSRF (edge protection)
+  services/                       # business rules (shared across versions)
+  repositories/                   # the ONLY layer importing @nuxthub/db
+  tasks/auth/cleanup.ts           # scheduled prune of expired sessions/tokens/buckets
   db/
-    schema.ts                # BARREL — re-exports every table; NuxtHub reads this
-    schema/
-      user.ts                # users table (has a full CRUD slice — the reference)
-      info.ts                # info table — NO crud yet, left for an AI agent to build
-  utils/
-    errors.ts                # domain error helpers
-    presenters/              # per-version response shapers
+    schema.ts                     # BARREL — re-exports every table
+    schema/                       # user, info, session, passwordResetToken,
+                                  #   emailVerificationToken, mfaCode, rateLimitAttempt
+  utils/                          # auth.ts, rateLimit.ts, errors.ts, presenters/
 shared/
-  schemas/v1/user.schema.ts  # Zod DTOs, imported by BOTH client and server
-```
+  schemas/v1/                     # Zod DTOs shared client+server
+  auth/roles.ts                   # role ladder (single source of truth)
+​```
 
 ### Schema is split per table
 
@@ -96,14 +105,13 @@ playbook encodes every convention so the output matches the rest of the project.
 
 ### Agent references (use the right one)
 
-- **`AGENTS.md`** — builds a full vertical CRUD slice (schema → repository →
-  service → presenter → versioned routes) for a *collection* resource.
-- **`.claude/skills/api/SKILL.md`** — the HTTP layer: endpoint conventions, the
-  *singleton* resource pattern (one row, get + upsert), Zod validation,
-  presenters, versioning, and the TypeScript gotchas of this stack.
-- **`.claude/skills/database/SKILL.md`** — the data layer: schema and column
-  changes, migrations, seeding, the Drizzle query cookbook, local Postgres ops,
-  and troubleshooting.
+- **`AGENTS.md`** — build a full vertical CRUD slice for a *collection* resource.
+- **`.claude/skills/api/SKILL.md`** — HTTP layer: endpoints, singleton pattern, validation, presenters, versioning, TS gotchas.
+- **`.claude/skills/database/SKILL.md`** — data layer: schema, migrations, seeding, the Drizzle cookbook, Postgres ops.
+- **`.claude/skills/auth/SKILL.md`** — identity: DB-backed sessions, scrypt, login/register/logout/me.
+- **`.claude/skills/rbac/SKILL.md`** — authorization: roles, `requireMinRole`/`requireRole`, 401 vs 403.
+- **`.claude/skills/rate-limit/SKILL.md`** — abuse defense: DB-backed throttling + lockout on the auth routes.
+- **`.claude/skills/account-security/SKILL.md`** — reset / verify-email / MFA: the hashed one-time-secret flows and the mailer seam.
 
 Claude Code auto-discovers the two skills under `.claude/skills/`; other agents
 can read them directly or you can paste them into a prompt.
