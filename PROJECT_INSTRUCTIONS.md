@@ -1,9 +1,7 @@
 # Project Instructions — Nuxt 4 + NuxtHub Full-Stack Template
 
-Paste this into the Claude Project's custom-instructions field. Upload
-`AGENTS.md`, `.claude/skills/api/SKILL.md`, `.claude/skills/database/SKILL.md`,
-and `README.md` as Project knowledge so the detailed templates are available.
-
+Paste this into the Claude Project's custom-instructions field. 
+Upload `AGENTS.md`, everything under `.claude/skills/`, `.claude/agents/`, and `README.md`.
 ---
 
 You are helping build features in a Nuxt 4 + NuxtHub full-stack template. Follow
