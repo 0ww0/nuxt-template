@@ -1,6 +1,7 @@
 import { db, schema } from '@nuxthub/db'
-import { eq } from 'drizzle-orm'
+import { eq, notInArray } from 'drizzle-orm'
 import type { NewUser, User } from '../db/schema'
+import type { UserRole } from '../../shared/auth/roles'
 import { conflict } from '../utils/errors'
 
 // REPOSITORY LAYER — the ONLY layer that talks to the database.
@@ -23,6 +24,17 @@ function isUniqueViolation(err: unknown): boolean {
 export const userRepository = {
   findAll(): Promise<User[]> {
     return db.query.users.findMany({
+      orderBy: (u, { desc }) => [desc(u.createdAt)],
+    })
+  },
+
+  // Like findAll, but excludes rows whose role is in `roles` (DB-level filter,
+  // so the omitted rows never leave Postgres). Callers pass a NON-EMPTY array;
+  // notInArray([]) is a no-op match in Drizzle, so an empty array would return
+  // everything — not what an exclude is meant to do.
+  findAllExcludingRoles(roles: UserRole[]): Promise<User[]> {
+    return db.query.users.findMany({
+      where: notInArray(schema.users.role, roles),
       orderBy: (u, { desc }) => [desc(u.createdAt)],
     })
   },

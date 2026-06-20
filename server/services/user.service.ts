@@ -1,5 +1,6 @@
 import { userRepository } from '../repositories/user.repository'
 import { conflict, notFound } from '../utils/errors'
+import type { UserRole } from '../../shared/auth/roles'
 
 // SERVICE LAYER — business rules. HTTP-agnostic, SHARED across API versions.
 //
@@ -10,6 +11,14 @@ import { conflict, notFound } from '../utils/errors'
 export const userService = {
   list() {
     return userRepository.findAll()
+  },
+
+  // Generic capability: list users excluding the given roles. The DECISION of
+  // which roles to hide is the caller's (e.g. the v2 list handler excludes
+  // 'admin'/'super_admin') — keeping the policy at the edge so this method stays
+  // reusable and the service stays version-agnostic.
+  listExcludingRoles(roles: UserRole[]) {
+    return userRepository.findAllExcludingRoles(roles)
   },
 
   async getById(id: number) {
