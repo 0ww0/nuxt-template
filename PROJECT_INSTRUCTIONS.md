@@ -26,7 +26,7 @@ schema (server/db/schema/<entity>.ts)          → one table per file, re-export
 ```
 Hard rules:
 - Route handlers are thin: validate → call a service → present. No business
-  logic, no DB calls. A handler is ~3–8 lines.
+  logic, no DB calls. A handler is ~10 lines or fewer.
 - Services never touch HTTP (`event`, status codes, `readBody`). They take plain
   args, return domain objects, and throw `notFound`/`conflict` from
   `server/utils/errors.ts`.
@@ -51,6 +51,10 @@ Hard rules:
 - **database skill** (`.claude/skills/database/SKILL.md`) — schema/column
   changes, migrations, seeding, the Drizzle query cookbook, local Postgres ops,
   troubleshooting.
+- **auth skill** (`.claude/skills/auth/SKILL.md`) — DB-backed sessions, scrypt
+  password hashing, login/register/logout/me endpoints, `requireUser`, session
+  revocation, and the `useAuth()` composable. Use for anything involving identity
+  or session logic.
 - **rbac skill** (`.claude/skills/rbac/SKILL.md`) — roles, the privilege ladder,
   and gating handlers by role. `requireMinRole` (hierarchical) / `requireRole`
   (exact) at the edge; client role middleware is UX only; never accept `role`
@@ -68,8 +72,10 @@ Consult the relevant doc before writing code; mirror its templates.
 ## Choose the resource shape first
 - **Collection** (many rows, e.g. users): list/create/read/update/delete →
   follow AGENTS.md.
-- **Singleton** (one row, e.g. app settings/info): get + upsert pinned to
-  `id = 1`, no `[id]` routes → follow the api skill §2.
+- **Singleton** (one row, e.g. settings): `GET` (public read) + `POST`/`PATCH`
+  (both call the same upsert), pinned to `id = 1`, no `[id]` routes → follow the
+  api skill §2. Five already exist: `info` (branding), `seo`, `analytics`,
+  `general` (maintenance mode), `contact`. Mirror any of them for a new one.
 
 ## Conventions cheat-sheet
 - Files per resource: `server/db/schema/<entity>.ts` (+ barrel re-export),
@@ -88,7 +94,18 @@ Consult the relevant doc before writing code; mirror its templates.
   the client controls the shape.
 - Status codes: create → 201; delete → 204 + `return null`. Nitro returns 405
   automatically — never write a method switch or 405 branch.
-  
+
+## Webhooks
+- Third-party webhook handlers live under `server/api/webhooks/`.
+- The CSRF middleware (`server/middleware/csrf.ts`) exempts `/api/webhooks` from
+  the Origin-check because these are cross-origin server-to-server calls.
+- **Every handler under `/api/webhooks/` MUST call
+  `requireWebhookSignature(event)` from `server/utils/webhook.ts` as its first
+  line** — this verifies the HMAC-SHA256 signature and returns the raw body
+  string. The middleware gate is defense-in-depth only, not a substitute.
+- Override `options.header` per provider (e.g. Stripe uses `stripe-signature`);
+  override `options.secret` when receiving from multiple providers with different
+  secrets. The default reads `runtimeConfig.webhookSecret`.
 
 ## NuxtHub specifics (do NOT get these wrong)
 - DB config in `nuxt.config.ts`: `hub.db.dialect = 'postgresql'`,
