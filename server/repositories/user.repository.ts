@@ -28,13 +28,13 @@ export const userRepository = {
     })
   },
 
-  // Like findAll, but excludes rows whose role is in `roles` (DB-level filter,
-  // so the omitted rows never leave Postgres). Callers pass a NON-EMPTY array;
-  // notInArray([]) is a no-op match in Drizzle, so an empty array would return
-  // everything — not what an exclude is meant to do.
+  // Like findAll, but excludes rows whose role is in `roles`. An EMPTY array
+  // means "exclude nothing" → list everyone: we pass `where: undefined` rather
+  // than notInArray(col, []), whose match-all behavior is a footgun if a caller
+  // ever passes a dynamically-built empty list.
   findAllExcludingRoles(roles: UserRole[]): Promise<User[]> {
     return db.query.users.findMany({
-      where: notInArray(schema.users.role, roles),
+      where: roles.length ? notInArray(schema.users.role, roles) : undefined,
       orderBy: (u, { desc }) => [desc(u.createdAt)],
     })
   },
@@ -45,6 +45,12 @@ export const userRepository = {
 
   findByEmail(email: string): Promise<User | undefined> {
     return db.query.users.findFirst({ where: eq(schema.users.email, email) })
+  },
+
+  // Count users holding a specific role. Used by the service to protect the
+  // last super_admin from being demoted/removed.
+  countByRole(role: UserRole): Promise<number> {
+    return db.$count(schema.users, eq(schema.users.role, role))
   },
 
   async create(data: NewUser): Promise<User> {
@@ -61,9 +67,28 @@ export const userRepository = {
   },
 
   async update(id: number, data: Partial<NewUser>): Promise<User | undefined> {
+    // Same 23505 → conflict() guard as create(): a concurrent rename to a taken
+    // email (or any path that slips past the service's pre-check) must surface
+    // as a clean 409, not an unhandled 500.
+    try {
+      const [updated] = await db
+        .update(schema.users)
+        .set(data)
+        .where(eq(schema.users.id, id))
+        .returning()
+      return updated
+    } catch (err) {
+      if (isUniqueViolation(err)) throw conflict('Email already in use')
+      throw err
+    }
+  },
+
+  // Focused role write — keeps "where role is mutated" greppable in one place,
+  // and never touches email/name so it can't collide on the unique constraint.
+  async setRole(id: number, role: UserRole): Promise<User | undefined> {
     const [updated] = await db
       .update(schema.users)
-      .set(data)
+      .set({ role })
       .where(eq(schema.users.id, id))
       .returning()
     return updated

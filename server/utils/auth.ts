@@ -54,6 +54,16 @@ export async function requireMinRole(event: H3Event, min: UserRole): Promise<Use
   return user
 }
 
+// Authorization guard for ROLE ASSIGNMENT (creating or changing a user's role).
+// An actor may never grant a role ABOVE their own rank — so an admin cannot mint
+// or promote anyone to super_admin. `requireMinRole` caps WHO may assign a role;
+// this caps WHICH role they may assign. Use both. Throws 403.
+export function assertCanAssignRole(actor: User, role: UserRole): void {
+  if (!roleAtLeast(actor.role, role)) {
+    throw forbidden('Cannot assign a role above your own')
+  }
+}
+
 // requireVerifiedUser(event) → logged in AND email-verified. Use to gate
 // actions that must not run for an unconfirmed address (403 if unverified).
 // Authentication (401) is still checked first by requireUser.
