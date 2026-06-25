@@ -9,7 +9,7 @@ import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
 // (seo_settings, analytics_settings, contact_settings, general_settings) so
 // each concern can be read/written/role-gated independently. This table is
 // now scoped to core identity + branding only.
-export const infos = pgTable('informations', {
+export const infoSettings = pgTable('info_settings', {
   // Primary Key
   id: serial().primaryKey(),
 
@@ -41,5 +41,5 @@ export const infos = pgTable('informations', {
     .$onUpdate(() => new Date()),
 })
 
-export type Info = typeof infos.$inferSelect
-export type NewInfo = typeof infos.$inferInsert
+export type InfoSetting = typeof infoSettings.$inferSelect
+export type NewInfoSetting = typeof infoSettings.$inferInsert

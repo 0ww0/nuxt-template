@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1781973052641,
-      "tag": "0000_yellow_paibok",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1782370480227,
-      "tag": "0001_kind_outlaw_kid",
+      "when": 1782376729857,
+      "tag": "0000_yellow_adam_warlock",
       "breakpoints": true
     }
   ]

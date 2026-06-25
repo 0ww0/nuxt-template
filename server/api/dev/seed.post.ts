@@ -14,7 +14,7 @@ export default defineEventHandler(async () => {
   // The four settings singletons have no FK relationship to users, so order
   // among them doesn't matter — grouped here for readability.
   await db.delete(schema.sessions)
-  await db.delete(schema.infos)
+  await db.delete(schema.infoSettings)
   await db.delete(schema.seoSettings)
   await db.delete(schema.analyticsSettings)
   await db.delete(schema.contactSettings)
@@ -59,7 +59,7 @@ export default defineEventHandler(async () => {
 
   // `informations` — trimmed to identity + branding only. author/siteUrl moved
   // to seo_settings; maintenanceMode/analyticsEnabled moved to their own tables.
-  await db.insert(schema.infos).values({
+  await db.insert(schema.infoSettings).values({
     id: 1, // singleton row (matches infoRepository SINGLETON_ID)
     title: 'My App',
     description: 'A demo application',
@@ -100,7 +100,7 @@ export default defineEventHandler(async () => {
   return {
     seeded: {
       users: demoUsers.length + 3,
-      infos: 1,
+      infoSettings: 1,
       seoSettings: 1,
       analyticsSettings: 1,
       contactSettings: 1,
