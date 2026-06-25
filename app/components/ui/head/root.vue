@@ -34,4 +34,5 @@ useSeoMeta({
 </script>
 
 <template>
+  <slot />
 </template>

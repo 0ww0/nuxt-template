@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    name: Lint, type-check & convention checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ──────────────────────────────────────────────
+      # 1. TypeScript — hard gate, must pass before merge
+      # ──────────────────────────────────────────────
+      - name: Type check
+        run: npx nuxt typecheck
+
+      # ──────────────────────────────────────────────
+      # 2. Layer discipline — @nuxthub/db only in repositories/ or tasks/
+      # ──────────────────────────────────────────────
+      - name: Check @nuxthub/db import discipline
+        run: |
+          VIOLATIONS=$(grep -r "from '@nuxthub/db'" server/ \
+            --include="*.ts" \
+            --exclude-path="*/repositories/*" \
+            --exclude-path="*/tasks/*" \
+            -l 2>/dev/null || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "ERROR: @nuxthub/db imported outside server/repositories/ or server/tasks/:"
+            echo "$VIOLATIONS"
+            exit 1
+          fi
+          echo "✓ @nuxthub/db imports are confined to repositories and tasks"
+
+      # ──────────────────────────────────────────────
+      # 3. Layer discipline — no HTTP primitives in services/
+      # ──────────────────────────────────────────────
+      - name: Check services are HTTP-agnostic
+        run: |
+          VIOLATIONS=$(grep -rn "readBody\|setResponseStatus\|getHeader\|setCookie\|event\." \
+            server/services/ \
+            --include="*.ts" \
+            -l 2>/dev/null || true)
+          if [ -n "$VIOLATIONS" ]; then
+            echo "ERROR: HTTP primitives found in server/services/:"
+            echo "$VIOLATIONS"
+            echo "Services must be HTTP-agnostic — move HTTP logic to the route handler."
+            exit 1
+          fi
+          echo "✓ No HTTP primitives in services"
+
+      # ──────────────────────────────────────────────
+      # 4. Webhook signature enforcement
+      # ──────────────────────────────────────────────
+      - name: Check webhook signature enforcement
+        run: |
+          FAILED=0
+          WEBHOOK_DIR="server/api/webhooks"
+          if [ -d "$WEBHOOK_DIR" ]; then
+            while IFS= read -r -d '' file; do
+              if ! grep -q "requireWebhookSignature" "$file"; then
+                echo "ERROR: $file does not call requireWebhookSignature(event)"
+                FAILED=1
+              fi
+            done < <(find "$WEBHOOK_DIR" -name "*.ts" -print0)
+          fi
+          if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "Every handler under server/api/webhooks/ must call"
+            echo "requireWebhookSignature(event) as its first line."
+            exit 1
+          fi
+          echo "✓ All webhook handlers call requireWebhookSignature"
+
+      # ──────────────────────────────────────────────
+      # 5. Warning — sensitive handlers that may be missing checkRateLimit
+      #    (non-blocking: some thin wrappers are intentionally exempt)
+      # ──────────────────────────────────────────────
+      - name: Warn on potentially unthrottled sensitive handlers
+        run: |
+          WARNED=0
+          for file in $(grep -rl "sendMail\|scryptAsync\|authService\|mfaService" \
+            server/api/ --include="*.ts" 2>/dev/null); do
+            if ! grep -q "checkRateLimit" "$file"; then
+              echo "WARNING: $file uses sendMail/scrypt/authService/mfaService but has no checkRateLimit — verify manually"
+              WARNED=1
+            fi
+          done
+          if [ "$WARNED" -eq 0 ]; then
+            echo "✓ No unthrottled sensitive handlers detected"
+          fi
+          # Not exit 1 — this is advisory only
