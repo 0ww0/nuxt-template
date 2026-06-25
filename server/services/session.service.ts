@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto'
 import { sessionRepository } from '../repositories/session.repository'
-import { userRepository } from '../repositories/user.repository'
 import type { Session, User } from '../db/schema'
 
 // SERVICE LAYER — business rules. HTTP-agnostic, SHARED across API versions.
@@ -17,19 +16,26 @@ export const sessionService = {
   // Resolve the current user from a token. Returns null (not an error) for the
   // common "no/expired session" case so callers can treat anonymous as valid;
   // the EDGE decides whether that's a 401 (see server/utils/auth.ts).
+  //
+  // One DB round-trip via the session⨝user join. The two self-healing prunes
+  // (expired session, orphaned session) are preserved exactly as before.
   async resolve(token: string | undefined): Promise<{ user: User; session: Session } | null> {
     if (!token) return null
-    const session = await sessionRepository.findByToken(token)
-    if (!session) return null
+
+    const found = await sessionRepository.findByTokenWithUser(token)
+    if (!found) return null
+
+    const { session, user } = found
+
     if (session.expiresAt.getTime() <= Date.now()) {
       await sessionRepository.deleteByToken(token) // self-healing prune
       return null
     }
-    const user = await userRepository.findById(session.userId)
     if (!user) {
       await sessionRepository.deleteByToken(token) // self-heal orphan session
       return null
     }
+
     return { user, session }
   },
 

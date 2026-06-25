@@ -1,16 +1,18 @@
-import { mfaVerifyV1Schema } from '~~/shared/schemas/v1/auth.schema'
 import { z } from 'zod'
 import { mfaService } from '../../../../services/mfa.service'
 import { userRepository } from '../../../../repositories/user.repository'
 import { checkRateLimit } from '../../../../utils/rateLimit'
-import { notFound, unauthorized } from '../../../../utils/errors'
 
-// POST /api/v1/auth/mfa/send — (re-)send an OTP to the user during the MFA
-// login step. Body: { user_id }. Only valid when the account has MFA enabled
-// and the user just passed the password check (they have user_id from the login
-// response). No session cookie is required at this stage.
+// POST /api/v1/auth/mfa/send — (re-)send an OTP during the MFA login step.
+// Body: { userId }. The legitimate client reaches this only after a login that
+// returned { mfa_required: true, userId }, so a valid account always gets a code.
 //
-// Rate limited tightly to prevent OTP flooding / email-bomb.
+// Anti-enumeration: the response is IDENTICAL whether or not the account exists
+// or has MFA enabled. Previously this returned 401 "MFA not enabled" for a
+// missing/non-MFA user, which let an attacker probe sequential userIds for
+// account existence + MFA status. Now we silently no-op on those cases.
+//
+// Rate limited (per-account + per-IP) to bound OTP-email flooding to a victim.
 const sendBodySchema = z.object({ userId: z.number().int().positive() })
 
 export default defineEventHandler(async (event) => {
@@ -19,8 +21,10 @@ export default defineEventHandler(async (event) => {
   await checkRateLimit(event, 'mfa-send', { maxAttempts: 3, windowMs: 10 * 60_000, lockoutMs: 30 * 60_000 }, String(userId))
 
   const user = await userRepository.findById(userId)
-  if (!user || !user.mfaEnabled) throw unauthorized('MFA not enabled for this account')
+  if (user && user.mfaEnabled) {
+    await mfaService.sendCode(user)
+  }
 
-  await mfaService.sendCode(user)
-  return { message: 'Code sent.' }
+  // Generic response regardless of outcome.
+  return { message: 'If a code is required, it has been sent.' }
 })

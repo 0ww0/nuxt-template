@@ -1,4 +1,5 @@
-import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto'
+import { randomBytes, scrypt, timingSafeEqual, createHash } from 'node:crypto'
+import { promisify } from 'node:util'
 import { userRepository } from '../repositories/user.repository'
 import { passwordResetTokenRepository } from '../repositories/passwordResetToken.repository'
 import { emailVerificationTokenRepository } from '../repositories/emailVerificationToken.repository'
@@ -13,17 +14,28 @@ import type { UserRole } from '../../shared/auth/roles'
 // Node runtime (this template's Docker image runs `node-server`). On a pure
 // edge/serverless runtime, swap to Web Crypto PBKDF2.
 
-function hashPassword(password: string): string {
+// ASYNC scrypt — runs the KDF on the libuv threadpool instead of blocking the
+// single Node event loop. scryptSync would freeze ALL request handling for the
+// full hash duration; under concurrent logins that serializes every request in
+// the process. Each concurrent hash occupies one threadpool slot (default 4 —
+// raise UV_THREADPOOL_SIZE on the container if auth concurrency is high).
+const scryptAsync = promisify(scrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+) => Promise<Buffer>
+
+async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
-  const derived = scryptSync(password, salt, 64)
+  const derived = await scryptAsync(password, salt, 64)
   return `${salt.toString('hex')}:${derived.toString('hex')}`
 }
 
-function verifyPassword(password: string, stored: string): boolean {
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
   const [saltHex, hashHex] = stored.split(':')
   if (!saltHex || !hashHex) return false
   try {
-    const derived = scryptSync(password, Buffer.from(saltHex, 'hex'), 64)
+    const derived = await scryptAsync(password, Buffer.from(saltHex, 'hex'), 64)
     const hash = Buffer.from(hashHex, 'hex')
     return derived.length === hash.length && timingSafeEqual(derived, hash)
   } catch {
@@ -32,6 +44,13 @@ function verifyPassword(password: string, stored: string): boolean {
     return false
   }
 }
+
+// Decoy hash for LOGIN TIMING EQUALIZATION (anti-enumeration). When the email
+// doesn't exist (or has no password), we must still spend the same scrypt time
+// as a real verification — otherwise the faster "no such user" response leaks
+// which emails are registered. Computed once at module load over a throwaway
+// secret; the raw value is irrelevant since the comparison result is discarded.
+const decoyHashPromise = hashPassword(randomBytes(32).toString('hex'))
 
 // Fast SHA-256 for one-time tokens (not passwords — these already carry
 // 256 bits of CSPRNG entropy so no slow KDF needed).
@@ -74,7 +93,7 @@ export const authService = {
       email: input.email,
       name: input.name,
       role: input.role ?? 'user',
-      passwordHash: hashPassword(input.password),
+      passwordHash: await hashPassword(input.password),
     })
     try {
       await issueEmailVerification(user)
@@ -91,9 +110,19 @@ export const authService = {
     password: string,
   ): Promise<User | { mfaRequired: true; userId: number }> {
     const user = await userRepository.findByEmail(email)
-    if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
+
+    // Missing account / credential-less user: still burn one scrypt against the
+    // decoy so this path costs the same as a real verification, then fail
+    // generically. Without this, response latency distinguishes real emails.
+    if (!user || !user.passwordHash) {
+      await verifyPassword(password, await decoyHashPromise)
       throw unauthorized('Invalid email or password')
     }
+
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      throw unauthorized('Invalid email or password')
+    }
+
     if (user.mfaEnabled) {
       return { mfaRequired: true as const, userId: user.id }
     }
@@ -127,7 +156,7 @@ export const authService = {
     const record = await passwordResetTokenRepository.findUsableByHash(sha256(token))
     if (!record) throw unauthorized('Invalid or expired reset token')
 
-    await userRepository.update(record.userId, { passwordHash: hashPassword(newPassword) })
+    await userRepository.update(record.userId, { passwordHash: await hashPassword(newPassword) })
     await passwordResetTokenRepository.deleteByUserId(record.userId)
     await sessionService.revokeAllForUser(record.userId)
   },

@@ -24,6 +24,31 @@ const SKIP_PREFIXES: string[] = ['/api/webhooks']
 // but the middleware-level gate uses this default.
 const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature'
 
+// Resolve the host we consider "ours" for the Origin comparison.
+//
+// We pin this to the configured public app URL rather than trusting
+// `x-forwarded-host`. A client-supplied forwarded header is attacker-controlled
+// unless the proxy overwrites it, so comparing Origin against it would let an
+// attacker send Origin: evil + X-Forwarded-Host: evil and pass the check —
+// a full CSRF bypass. Pinning to runtimeConfig.public.appUrl removes that trust.
+//
+// (Operator note: appUrl MUST equal the public origin the app is served on —
+// the same value email links use. If it's unset/unparseable we fall back to the
+// proxy-supplied host and warn, preserving old behaviour but logging the gap.)
+function expectedHost(event: Parameters<typeof getRequestHost>[0]): string {
+  const appUrl = (useRuntimeConfig(event).public as { appUrl?: string }).appUrl
+  if (appUrl) {
+    try {
+      return new URL(appUrl).host
+    } catch {
+      console.warn('[csrf] public.appUrl is not a valid URL; falling back to forwarded host')
+    }
+  } else {
+    console.warn('[csrf] public.appUrl is not set; falling back to forwarded host')
+  }
+  return getRequestHost(event, { xForwardedHost: true })
+}
+
 export default defineEventHandler((event) => {
   if (!PROTECTED_METHODS.has(event.method)) return
 
@@ -52,10 +77,8 @@ export default defineEventHandler((event) => {
     throw createError({ statusCode: 403, statusMessage: 'Invalid Origin header' })
   }
 
-  // Trust x-forwarded-host so the comparison works behind a proxy / on deploy.
-  const host = getRequestHost(event, { xForwardedHost: true })
-  if (originHost !== host) {
+  // Compare against our PINNED host, not a client-supplied forwarded header.
+  if (originHost !== expectedHost(event)) {
     throw createError({ statusCode: 403, statusMessage: 'Cross-origin request blocked' })
   }
 })
-
