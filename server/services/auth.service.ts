@@ -145,11 +145,21 @@ export const authService = {
 
     const appUrl = useRuntimeConfig().public.appUrl
     const link = `${appUrl}/reset-password?token=${rawToken}`
-    await sendMail({
-      to: user.email,
-      subject: 'Reset your password',
-      text: `Use this link to reset your password (valid for 1 hour):\n${link}\n\nIf you didn't request this, you can ignore this email.`,
-    })
+
+    // A mail failure (transport down, or unconfigured in prod where sendMail
+    // throws by design) must NOT bubble up here. The unknown-email path above
+    // returns a generic 200; if this registered-email path threw, the
+    // 500-vs-200 difference would enumerate accounts. Log and return normally
+    // so the response is identical regardless of account existence or delivery.
+    try {
+      await sendMail({
+        to: user.email,
+        subject: 'Reset your password',
+        text: `Use this link to reset your password (valid for 1 hour):\n${link}\n\nIf you didn't request this, you can ignore this email.`,
+      })
+    } catch (err) {
+      console.error('[auth] could not send password reset email', err)
+    }
   },
 
   async resetPassword(token: string, newPassword: string): Promise<void> {

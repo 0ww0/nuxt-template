@@ -16,9 +16,6 @@ import type { Session, User } from '../db/schema'
 //   3. mfaService.verifyCode() validates → creates and returns the real session.
 //
 // The full session is never issued until BOTH factors succeed.
-// `userId` in the mfa/verify body is safe: without the correct OTP the code
-// path ends at 401, and brute-forcing 6 digits is blocked by MAX_ATTEMPTS +
-// per-endpoint rate limiting in the handler.
 
 const MFA_TTL_MS = 10 * 60 * 1000 // codes expire in 10 minutes
 const MAX_ATTEMPTS = 5             // wrong OTPs before the code is burned
@@ -44,11 +41,20 @@ export const mfaService = {
       expiresAt: new Date(Date.now() + MFA_TTL_MS),
     })
 
-    await sendMail({
-      to: user.email,
-      subject: 'Your sign-in code',
-      text: `Your sign-in code is: ${code}\n\nIt expires in 10 minutes. Do not share it.`,
-    })
+    // A mail failure must NOT turn the /mfa/send handler into a 500. That
+    // handler returns a generic 200 for non-MFA / missing accounts; if a real
+    // MFA account's send threw here, the 500-vs-200 difference would re-leak
+    // MFA-enabled status (the enumeration the handler deliberately hides). Log
+    // and return normally — the user simply retries if the email never arrives.
+    try {
+      await sendMail({
+        to: user.email,
+        subject: 'Your sign-in code',
+        text: `Your sign-in code is: ${code}\n\nIt expires in 10 minutes. Do not share it.`,
+      })
+    } catch (err) {
+      console.error('[mfa] could not send sign-in code email', err)
+    }
   },
 
   // Verify the OTP. The repository looks up by hash so the raw code is never

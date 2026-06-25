@@ -1,5 +1,5 @@
 import { db, schema } from '@nuxthub/db'
-import { lt, and, isNotNull, isNull, or } from 'drizzle-orm'
+import { lt, and, isNull, or } from 'drizzle-orm'
 
 // Nitro scheduled task — runs hourly to prune expired rows.
 // Scheduled in nuxt.config.ts:
@@ -12,8 +12,8 @@ import { lt, and, isNotNull, isNull, or } from 'drizzle-orm'
 //
 // Ad-hoc in dev:  npx nuxt task run auth:cleanup
 //
-// This task cleans up four categories:
-//  1. Expired sessions         (expired_at < now)
+// This task cleans up:
+//  1. Expired sessions         (expires_at < now)
 //  2. Expired password-reset tokens
 //  3. Expired email-verification tokens
 //  4. Expired MFA OTP codes
@@ -29,6 +29,12 @@ import { lt, and, isNotNull, isNull, or } from 'drizzle-orm'
 // DO NOT use this as precedent. Route handlers and services MUST go through
 // the repository layer. If you need DB access elsewhere, add a repository
 // method instead.
+
+// Longest rate-limit window in use across all checkRateLimit() call sites
+// (currently forgot-password / verify-email at 60 min). A rate-limit row is
+// only safe to prune once it's older than this — otherwise an active window
+// could be deleted mid-count. If you add a longer window anywhere, raise this.
+const MAX_RATE_LIMIT_WINDOW_MS = 60 * 60_000
 
 export default defineTask({
   meta: {
@@ -66,10 +72,11 @@ export default defineTask({
           .delete(schema.rateLimitAttempts)
           .where(
             and(
-              // Window is expired: we don't store windowEnd explicitly, but any
-              // bucket last updated >1 hour ago is safely stale for our longest
-              // window (forgot-password: 60 min). Adjust if you add longer windows.
-              lt(schema.rateLimitAttempts.updatedAt, new Date(now.getTime() - 60 * 60_000)),
+              // Stale once last updated longer ago than the longest window.
+              lt(
+                schema.rateLimitAttempts.updatedAt,
+                new Date(now.getTime() - MAX_RATE_LIMIT_WINDOW_MS),
+              ),
               // Not currently locked (either never locked, or lock has expired).
               or(
                 isNull(schema.rateLimitAttempts.blockedUntil),

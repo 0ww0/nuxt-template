@@ -2,13 +2,15 @@ import { updateGeneralV1Schema } from '~~/shared/schemas/v1/general.schema'
 import { generalService } from '../../../services/general.service'
 import { presentGeneralV1 } from '../../../utils/presenters/general.v1'
 import { requireMinRole } from '../../../utils/auth'
-import { GENERAL_CACHE_KEY } from './index.get'
+import { GENERAL_CACHE_STORAGE_KEY } from './index.get'
 
 // PATCH /api/v1/general — super_admin only; purges the GET cache on success.
 export default defineEventHandler(async (event) => {
   await requireMinRole(event, 'super_admin')
   const body = await readValidatedBody(event, updateGeneralV1Schema.parse)
   const result = await generalService.save(body)
-  await useStorage('cache').removeItem(`nitro:handlers:${GENERAL_CACHE_KEY}.json`)
+  // Evict the EXACT cached entry (see GENERAL_CACHE_STORAGE_KEY). The previous
+  // `${KEY}.json` form omitted the getKey segment and silently no-op'd.
+  await useStorage('cache').removeItem(GENERAL_CACHE_STORAGE_KEY)
   return presentGeneralV1(result)
 })
