@@ -34,6 +34,6 @@
     "@types/nodemailer": "^8.0.1",
     "@vitejs/plugin-vue": "^6.0.7",
     "storybook": "^10.4.6",
-    "vue-tsc": "^3.2.9"
+    "vue-tsc": "^3.3.5"
   }
 }

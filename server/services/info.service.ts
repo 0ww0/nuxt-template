@@ -1,6 +1,6 @@
 import { infoRepository } from '../repositories/info.repository'
 import { notFound } from '../utils/errors'
-import type { NewInfo } from '../db/schema'
+import type { NewInfoSetting } from '../db/schema'
 
 // SERVICE LAYER — business rules for the singleton `informations` record.
 export const infoService = {
@@ -10,7 +10,7 @@ export const infoService = {
     return info
   },
 
-  save(data: Partial<NewInfo>) {
+  save(data: Partial<NewInfoSetting>) {
     return infoRepository.upsert(data)
   },
 }
