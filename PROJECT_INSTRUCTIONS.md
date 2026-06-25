@@ -74,10 +74,7 @@ Consult the relevant doc before writing code; mirror its templates.
 ## Choose the resource shape first
 - **Collection** (many rows, e.g. users): list/create/read/update/delete →
   follow AGENTS.md.
-- **Singleton** (one row, e.g. settings): `GET` (public read) + `POST`/`PATCH`
-  (both call the same upsert), pinned to `id = 1`, no `[id]` routes → follow the
-  api skill §2. Five already exist: `info` (branding), `seo`, `analytics`,
-  `general` (maintenance mode), `contact`. Mirror any of them for a new one.
+- **Singleton** (one row, e.g. settings): `GET` (cached public read via `cachedEventHandler`) + `POST`/`PATCH` (upsert + cache purge), pinned to `id = 1`, no `[id]` routes → follow the api skill §2. Five already exist: `info` (branding), `seo`, `analytics`, `general` (maintenance mode), `contact`. Mirror any of them for a new one. Singleton schema files use the `<Entity>Setting.ts` naming convention.
 
 ## Conventions cheat-sheet
 - Files per resource: `server/db/schema/<entity>.ts` (+ barrel re-export),
@@ -96,6 +93,7 @@ Consult the relevant doc before writing code; mirror its templates.
   the client controls the shape.
 - Status codes: create → 201; delete → 204 + `return null`. Nitro returns 405
   automatically — never write a method switch or 405 branch.
+- Singleton GETs use `cachedEventHandler` with `name` + `getKey: () => 'singleton'` + an exported `CACHE_STORAGE_KEY`. Write handlers purge via `useStorage('cache').removeItem(KEY)` after saving. Singleton schema files are named `<Entity>Setting.ts` (e.g. `infoSetting.ts`).
 
 ## Webhooks
 - Third-party webhook handlers live under `server/api/webhooks/`.
