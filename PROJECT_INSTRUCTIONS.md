@@ -57,8 +57,10 @@ Hard rules:
   or session logic.
 - **rbac skill** (`.claude/skills/rbac/SKILL.md`) — roles, the privilege ladder,
   and gating handlers by role. `requireMinRole` (hierarchical) / `requireRole`
-  (exact) at the edge; client role middleware is UX only; never accept `role`
-  from a public body. 401 = not logged in, 403 = wrong role.
+  (exact) / `requireVerifiedUser` (login + email verified) at the edge;
+  `assertCanAssignRole(actor, role)` caps the assignable rank on role-mutation
+  endpoints; client role middleware is UX only; never accept `role` from a public
+  body. 401 = not logged in, 403 = wrong role.
 - **rate-limit skill** (`.claude/skills/rate-limit/SKILL.md`) — DB-backed
   throttling + lockout (table → repository → service → `checkRateLimit` edge util),
   called per-handler before DB/crypto work. Per-IP + per-account buckets; 429 +

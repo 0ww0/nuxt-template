@@ -1,8 +1,9 @@
 # Nuxt 4 + NuxtHub — Layered Backend Starter
 
-A minimal but real example of a full-stack Nuxt app with a **layered backend**
-and **API versioning**. One `users` resource is implemented end to end so you
-can see every layer and how a request flows through them.
+A full-stack Nuxt app with a **layered backend**, **API versioning**, auth, RBAC,
+rate limiting, account security (reset / verify / MFA), and five settings
+singletons. The `users` resource is the collection reference; `info` is the
+singleton reference.
 
 ## The flow of one request
 
@@ -23,10 +24,9 @@ database (server/db/schema.ts)           ← single source of truth, via @nuxthu
 
 - **Route handler** — Owns HTTP concerns only: parse + validate input (Zod),
   call a service, shape the response, let domain errors map to status codes.
-  Stays a few lines long.
+  Stays ~10 lines or fewer.
 - **Service** — Business logic ("emails must be unique"). Knows nothing about
-  requests or responses, so it's trivially unit-testable. Shared by all API
-  versions.
+  requests or responses. Shared by all API versions.
 - **Repository** — Every Drizzle query lives here. Swap ORMs or add caching in
   one place without touching anything above.
 - **Schema** — `server/db/schema.ts` is the single source of truth. NuxtHub
@@ -53,41 +53,82 @@ deprecation date. Adding versions is cheap; keeping them alive forever is not.
 
 ## Folder structure
 
-​```
+```
 AGENTS.md                         # playbook: how an agent adds a CRUD resource
 PROJECT_INSTRUCTIONS.md           # paste into a Claude Project's custom instructions
-.claude/skills/
-  api/SKILL.md                    # endpoint patterns, singleton resource, validation
-  database/SKILL.md               # schema, migrations, queries, seeding
-  auth/SKILL.md                   # DB-backed sessions + scrypt; login/register/logout/me
-  rbac/SKILL.md                   # roles, privilege ladder, requireMinRole/requireRole
-  rate-limit/SKILL.md             # DB-backed throttling + lockout for the auth routes
+.claude/
+  skills/
+    api/SKILL.md                  # endpoint patterns, singleton resource, validation
+    database/SKILL.md             # schema, migrations, queries, seeding
+    auth/SKILL.md                 # DB-backed sessions + scrypt; login/register/logout/me
+    rbac/SKILL.md                 # roles, privilege ladder, requireMinRole/requireRole
+    rate-limit/SKILL.md           # DB-backed throttling + lockout for the auth routes
+    account-security/SKILL.md     # password reset, email verify, email-OTP MFA
+  agents/
+    resource-scaffolder.md        # generates a full resource slice
+    convention-reviewer.md        # reviews a changeset against hard rules
 docker-compose.yml                # prod stack: Nuxt (node-server) + Postgres + Caddy
-layers/                           # Nuxt layers
+docker-compose.dev.yml            # dev extras: Mailpit (SMTP catcher, port 8025)
+layers/
   1.auth/                         # login/register pages, useAuth, auth + role middleware
   2.admin/                        # admin layout + role-gated admin area
   3.portal/                       # signed-in user portal (dashboard, etc.)
 app/                              # base Nuxt 4 client app
 server/
   api/
-    v1/users/                     # full CRUD reference slice
-    v1/auth/                      # login, register, logout, me, mfa/verify, reset, verify-email
-    v1/admin/                     # role-gated (requireMinRole)
+    v1/users/                     # collection reference: list, create, get, patch, delete
+    v1/users/[id]/role.patch.ts   # super_admin-only role mutation (isolated endpoint)
+    v1/auth/                      # login, register, logout, me
+                                  # forgot-password, reset-password
+                                  # verify-email, resend-verification
+                                  # mfa/send, mfa/verify, mfa/enable, mfa/disable
+    v1/admin/                     # role-gated area (requireMinRole 'admin')
+    v1/info/                      # singleton: app identity & branding (super_admin writes)
+    v1/seo/                       # singleton: SEO metadata (super_admin writes)
+    v1/analytics/                 # singleton: analytics config (super_admin writes)
+    v1/general/                   # singleton: maintenance mode etc. (super_admin writes)
+    v1/contact/                   # singleton: contact details (admin writes)
+    v1/webhooks/                  # CSRF-exempt; handlers must call requireWebhookSignature
     v2/users/                     # versioned edge over the shared service
-    dev/seed.post.ts              # dev-only seeder
-  middleware/csrf.ts              # global Origin-check CSRF (edge protection)
+    dev/seed.post.ts              # dev-only seeder (403 in production)
+  middleware/
+    csrf.ts                       # global Origin-check CSRF; exempts /api/webhooks
   services/                       # business rules (shared across versions)
   repositories/                   # the ONLY layer importing @nuxthub/db
   tasks/auth/cleanup.ts           # scheduled prune of expired sessions/tokens/buckets
   db/
     schema.ts                     # BARREL — re-exports every table
-    schema/                       # user, info, session, passwordResetToken,
-                                  #   emailVerificationToken, mfaCode, rateLimitAttempt
-  utils/                          # auth.ts, rateLimit.ts, errors.ts, presenters/
+    schema/
+      user.ts                     # users (email unique, role CHECK, mfaEnabled, emailVerifiedAt)
+      info.ts                     # informations — branding & identity
+      seo.ts                      # seo_settings
+      analytics.ts                # analytics_settings
+      contact.ts                  # contact_settings
+      general.ts                  # general_settings (maintenanceMode)
+      session.ts                  # sessions (token unique, userId FK cascade)
+      passwordResetToken.ts       # password_reset_tokens (tokenHash, expiresAt)
+      emailVerificationToken.ts   # email_verification_tokens (tokenHash, expiresAt)
+      mfaCode.ts                  # mfa_codes (codeHash, attempts, expiresAt)
+      rateLimitAttempt.ts         # rate_limit_attempts (atomic upsert bucket)
+  utils/
+    auth.ts                       # edge: setSessionCookie, requireUser, requireMinRole,
+                                  #        requireRole, assertCanAssignRole, requireVerifiedUser
+    rateLimit.ts                  # checkRateLimit edge util
+    webhook.ts                    # requireWebhookSignature (HMAC-SHA256)
+    mailer.ts                     # sendMail seam (Mailpit dev / provider prod)
+    errors.ts                     # notFound, conflict, unauthorized, forbidden, tooManyRequests
+    presenters/                   # one file per resource per version
 shared/
   schemas/v1/                     # Zod DTOs shared client+server
-  auth/roles.ts                   # role ladder (single source of truth)
-​```
+    auth.schema.ts
+    user.schema.ts                # createUserV1, updateUserV1, setRoleV1
+    info.schema.ts
+    seo.schema.ts
+    analytics.schema.ts
+    contact.schema.ts
+    general.schema.ts
+  auth/roles.ts                   # ROLES, ROLE_RANK, roleAtLeast (single source of truth)
+```
 
 ### Schema is split per table
 
@@ -99,8 +140,9 @@ is a barrel that re-exports all of them. NuxtHub reads the barrel to generate
 ### The reference resources
 
 `users` is the **collection** reference (many rows, full CRUD). `info` is the
-**singleton** reference (one config row, get + upsert — `infoService.get` /
-`infoService.save`). Copy whichever shape matches the resource you're adding.
+**singleton** reference (one config row, `GET` public + `POST`/`PATCH` gated —
+`infoService.get` / `infoService.save`). Copy whichever shape matches the
+resource you're adding.
 
 ### Adding a new resource
 
@@ -108,62 +150,51 @@ Use the **resource-scaffolder** agent (`.claude/agents/resource-scaffolder.md`):
 it reads AGENTS.md + the api/database skills and generates the full slice
 (schema → repository → service → presenter → versioned routes), then typechecks.
 To do it by hand instead, follow AGENTS.md (collection) or the api skill §2
-(singleton). Either way the conventions are encoded so the output matches the project.
+(singleton).
 
 ### Agent references (use the right one)
 
 - **`AGENTS.md`** — build a full vertical CRUD slice for a *collection* resource.
-- **`.claude/skills/api/SKILL.md`** — HTTP layer: endpoints, singleton pattern, validation, presenters, versioning, TS gotchas.
+- **`.claude/skills/api/SKILL.md`** — HTTP layer: endpoints, singleton pattern (five exist), validation, presenters, versioning, TS gotchas.
 - **`.claude/skills/database/SKILL.md`** — data layer: schema, migrations, seeding, the Drizzle cookbook, Postgres ops.
-- **`.claude/skills/auth/SKILL.md`** — identity: DB-backed sessions, scrypt, login/register/logout/me.
-- **`.claude/skills/rbac/SKILL.md`** — authorization: roles, `requireMinRole`/`requireRole`, 401 vs 403.
-- **`.claude/skills/rate-limit/SKILL.md`** — abuse defense: DB-backed throttling + lockout on the auth routes.
-- **`.claude/skills/account-security/SKILL.md`** — reset / verify-email / MFA: the hashed one-time-secret flows and the mailer seam.
+- **`.claude/skills/auth/SKILL.md`** — identity: DB-backed sessions, scrypt, login/register/logout/me, `requireUser`.
+- **`.claude/skills/rbac/SKILL.md`** — authorization: roles, `requireMinRole`/`requireRole`/`assertCanAssignRole`/`requireVerifiedUser`, 401 vs 403.
+- **`.claude/skills/rate-limit/SKILL.md`** — abuse defense: DB-backed throttling + lockout.
+- **`.claude/skills/account-security/SKILL.md`** — reset / verify-email / MFA: hashed one-time-secret flows and the mailer seam.
 
 ### Agents (`.claude/agents/`)
 
-- **`resource-scaffolder`** — generates a complete resource slice by mirroring
-  `users`/`info` and the skills, then runs `db:generate` + `typecheck`.
-- **`convention-reviewer`** — reviews a changeset against the hard rules (layering,
-  thin handlers, no secret leaks, `.strict()` PATCH, no `role` from a body,
-  rate-limit-before-scrypt). Reports only; never edits.
+- **`resource-scaffolder`** — generates a complete resource slice by mirroring `users`/`info` and the skills, then runs `db:generate` + `typecheck`.
+- **`convention-reviewer`** — reviews a changeset against the hard rules. Reports only; never edits.
 
 Agents *consume* the skills — the skills stay the single source of truth.
 
 ## Run it (Postgres, dev)
-
-This starter is configured for **PostgreSQL**. For local dev, spin up Postgres
-with Docker (uses the `POSTGRES_*` vars from your `.env`):
 
 ```bash
 cp .env.example .env          # then edit if needed
 docker compose up -d          # starts Postgres on localhost:5432
 npm install
 npm run dev                   # NuxtHub auto-applies migrations on dev start
+curl -X POST http://localhost:3000/api/dev/seed   # seed demo data
 ```
 
 `hub.db.dialect` is `postgresql` and `connection` reads `DATABASE_URL`, so
-NuxtHub selects the postgres-js driver automatically. Open the app, add a user,
-then compare the two API versions:
+NuxtHub selects the postgres-js driver automatically.
 
-- http://localhost:3000/api/v1/users
-- http://localhost:3000/api/v2/users
+For email (password reset, verify, MFA):
+
+```bash
+docker compose -f docker-compose.dev.yml up -d   # starts Mailpit on :8025
+```
+
+Open http://localhost:8025 to see emails. Without Mailpit running, the mailer
+falls back to console-logging the link.
+
+Compare the two API versions:
+
+- http://localhost:3000/api/v1/users — public list (all users, flat shape)
+- http://localhost:3000/api/v2/users — requires login; hides admin/super_admin rows
 
 No Docker? Point `DATABASE_URL` at any reachable Postgres (local install, Neon,
 Supabase) — nothing else changes.
-
-## Notes on NuxtHub specifics
-
-- **Don't** create `drizzle.config.ts` by hand — NuxtHub generates it.
-- **Don't** add `@nuxthub/db` to `package.json` — it's auto-generated on
-  `nuxt dev` / `nuxt build` from your schema.
-- Migrations live in `server/db/migrations/`. Generate SQL with
-  `npm run db:generate`; the dev server applies pending migrations
-  automatically. For deploys, run `npm run db:migrate` (`nuxt db migrate`).
-- To switch dialects, change `hub.db.dialect` and the schema imports
-  (`pg-core` ↔ `sqlite-core` ↔ `mysql-core`). The repository/service/route code
-  is dialect-agnostic and does not change.
-
-> Version pins in `package.json` are indicative. Run `npm create nuxt@latest`
-> for a fresh project if you want the newest pinned versions, then drop these
-> `server/`, `shared/`, and `app/` files in.

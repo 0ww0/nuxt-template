@@ -1,23 +1,22 @@
 # AGENTS.md — How to add a CRUD resource to this project
 
-This file tells an AI agent (Claude Code, Cursor, etc.) **exactly** how this
-codebase is structured and how to generate a complete CRUD slice for a new
-database table. Follow it literally. The `users` resource is the reference
-implementation — when in doubt, copy its patterns.
+This file tells an AI agent exactly how this codebase is structured and how to
+generate a complete CRUD slice for a new database table. Follow it literally.
+The `users` resource is the reference implementation — when in doubt, copy its patterns.
 
-> **Data-layer work?** For schema/column changes, migrations, seeding, query
-> authoring, or dev-db operations, use the database skill at
-> `.claude/skills/database/SKILL.md` instead. This file is for building the
-> upper layers (service + presenter + versioned routes) of a CRUD slice.
+> **Data-layer work?** Use the database skill at `.claude/skills/database/SKILL.md`.
 >
-> **Singleton resource, or endpoint patterns/validation/versioning in depth?**
-> See the API skill at `.claude/skills/api/SKILL.md`. This file covers the
-> standard *collection* resource (many rows); the API skill covers the
-> *singleton* pattern (one row, get + upsert) and all endpoint conventions.
+> **Singleton resource, or endpoint patterns in depth?**
+> See the api skill at `.claude/skills/api/SKILL.md`. Five singletons already exist
+> (`info`, `seo`, `analytics`, `general`, `contact`) — mirror any of them.
 >
 > **Auth, roles, abuse, or account flows?** Logged-in/owned resources → auth skill;
 > role-gating → rbac skill; throttling → rate-limit skill; reset/verify/MFA →
 > account-security skill (all in `.claude/skills/`).
+>
+> **Webhook handlers?** They live under `server/api/v1/webhooks/`, are
+> CSRF-exempt, and MUST call `requireWebhookSignature(event)` as their first
+> line. See `server/utils/webhook.ts` and `server/middleware/csrf.ts`.
 >
 > **Want it scaffolded or reviewed?** Use the `resource-scaffolder` and
 > `convention-reviewer` agents in `.claude/agents/`.
@@ -39,9 +38,8 @@ schema (server/db/schema/<entity>.ts)         → table definition, re-exported 
 ```
 
 ### Hard rules (do not violate)
-1. **Only repositories import `@nuxthub/db`.** Services and routes never run Drizzle directly. (Sole exception: scheduled maintenance tasks in `server/tasks/` — see
-`server/tasks/auth/cleanup.ts` — may import it; not a precedent for routes/services.)
-2. **Route handlers stay thin** — validate input, call a service, return a presented result. No business logic, no DB calls. Aim for under ~10 lines.
+1. **Only repositories import `@nuxthub/db`.** Services and routes never run Drizzle directly. (Sole exception: scheduled maintenance tasks in `server/tasks/` — see `server/tasks/auth/cleanup.ts` — may import it; not a precedent for routes/services.)
+2. **Route handlers stay thin** — validate input, call a service, return a presented result. No business logic, no DB calls. Aim for ~10 lines or fewer.
 3. **Services never touch HTTP** — no `event`, no `setResponseStatus`, no `readBody`. They take plain arguments and return domain objects. They throw domain errors from `server/utils/errors.ts`.
 4. **Version the edge, not the core.** Add versioned folders under `server/api/v{N}/` only. Services and repositories are shared across versions and are NOT versioned.
 5. **Per-version differences = validation + response shape only.** Implemented via Zod schemas in `shared/schemas/v{N}/` and presenters in `server/utils/presenters/`. Business logic is identical across versions unless behavior genuinely diverges.
@@ -52,25 +50,19 @@ schema (server/db/schema/<entity>.ts)         → table definition, re-exported 
 ### Auth-aware resources
 
 If a resource is owned or must be logged-in-only, do NOT add session logic to
-the service (that would make it touch HTTP). Instead:
+the service. In the handler, resolve the user at the edge and pass it down:
 
-1. In the handler, call `const user = await requireUser(event)` first (auto-401 if
-   absent), then pass `user.id` as an explicit argument to the service — e.g.
-   `postService.create(user.id, body)`. For a role-gated resource, use
-   `await requireMinRole(event, 'admin')` instead (auto-403 below that rank).
-2. Keep the service signature actor-explicit (`create(ownerId, input)`) so the
-   tenancy layer can later swap `user.id` for the active `tenantId` without
-   touching callers.
-3. Any table holding a secret (e.g. `passwordHash`, `tokenHash`, `codeHash`, or a
-   raw token) must use a hand-listed presenter that OMITS the secret — never
-   spread-everything.
+1. Call `const user = await requireUser(event)` (auto-401 if absent), then pass `user.id` as an explicit argument to the service — e.g. `postService.create(user.id, body)`.
+2. For role-gated resources: `const actor = await requireMinRole(event, 'admin')` (auto-403 below that rank).
+3. For **role mutation or deletion** — pass the full `actor` object to the service so it can enforce rank rules (no self-change, can't assign above your rank, can't delete a peer or superior). See `userService.setRole(actor, id, role)` and `userService.remove(actor, id)`.
+4. When creating a user with a specified role, also call `assertCanAssignRole(actor, role)` from `server/utils/auth.ts` to cap the assignable role at the actor's own rank.
+5. Keep the service signature actor-explicit (`create(ownerId, input)`) so the tenancy layer can later swap `user.id` for the active `tenantId` without touching callers.
+6. Any table holding a secret (e.g. `passwordHash`, `tokenHash`, `codeHash`) must use a hand-listed presenter that OMITS the secret — never spread-everything.
 
-Full recipe (register/login/logout/me, hashing, errors): see the **auth skill**
-at `.claude/skills/auth/SKILL.md`.
-
-For role-gating use `requireMinRole`/`requireRole` (rbac skill); for abuse-prone
-endpoints add `checkRateLimit` (rate-limit skill); for reset/verify/MFA, follow the
-account-security skill rather than reinventing the hashed-one-time-secret pattern.
+Full recipe (register/login/logout/me, hashing, errors): see the **auth skill**.
+Role-gating: **rbac skill** (also covers `assertCanAssignRole` and `requireVerifiedUser`).
+Abuse-prone endpoints: **rate-limit skill**.
+Reset/verify/MFA: **account-security skill**.
 
 ## 2. Naming conventions
 
@@ -88,71 +80,52 @@ account-security skill rather than reinventing the hashed-one-time-secret patter
 `<entity>` = singular (`project`, `user`). `<resource>` = the URL segment (usually
 plural: `projects`, `users`). When a noun is already plural-ish, keep it as-is.
 
-> The two reference resources: `users` is the **collection** example (many rows,
-> full CRUD — copy it for the playbook below). `infos` (DB table `informations`,
-> exported as `infos`) is the **singleton** example (one row pinned to `id = 1`,
-> get + upsert, no `[id]` routes — follow the api skill §2, not this file). Don't
-> re-scaffold either.
+> **Reference resources:** `users` is the **collection** example (many rows, full CRUD).
+> Any of the five settings singletons is the **singleton** example (one row pinned
+> to `id = 1`, `GET` public + `POST`/`PATCH` upsert, no `[id]` routes — follow
+> the api skill §2). Don't re-scaffold any of these.
 
-### Schema conventions (Postgres / `drizzle-orm/pg-core`)
-This project uses **PostgreSQL**. When defining a table, import from
-`drizzle-orm/pg-core` (NOT `sqlite-core`):
-- Primary key: `id: serial('id').primaryKey()`
-- Text: `text('col')`; booleans: `boolean('col').notNull().default(false)`
-- Timestamps: `timestamp('created_at', { withTimezone: true }).notNull().defaultNow()`
-- Auto-touch on update: append `.$onUpdate(() => new Date())`
-- Column names: `hub.db.casing` is `'snake_case'`, so you may OMIT the
-  column-name string and let camelCase keys map to snake_case columns
-  (e.g. `ogImage: text()` → `og_image`). Explicit names still work and override.
-  `users` uses explicit names; `infos` uses the no-name style — both are valid.
+## 3. Schema
 
-Mirror `server/db/schema/user.ts` (collection) and `server/db/schema/info.ts`
-(singleton) for the two shapes.
-
----
-
-## 3. Files to create for a new resource
-
-Given an already-defined table file `server/db/schema/<entity>.ts`, create these
-**six** items (plus one edit):
-
-1. **Edit** `server/db/schema.ts` → add `export * from './schema/<entity>'` (skip if already present).
-2. `server/repositories/<entity>.repository.ts`
-3. `server/services/<entity>.service.ts`
-4. `shared/schemas/v1/<entity>.schema.ts`
-5. `server/utils/presenters/<entity>.v1.ts`
-6. Route handlers under `server/api/v1/<resource>/`:
-   - `index.get.ts` (list)
-   - `index.post.ts` (create)
-   - `[id].get.ts` (read one)
-   - `[id].patch.ts` (update)
-   - `[id].delete.ts` (delete)
-
----
-
-## 4. Templates
-
-Replace `<Entity>` / `<entity>` / `<entities>` / `<resource>` and the fields to
-match the table. Mirror `users` for anything not shown.
-
-### 4a. Repository — `server/repositories/<entity>.repository.ts`
 ```ts
+// server/db/schema/<entity>.ts
+import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
+
+export const <entities> = pgTable('<entities>', {
+  id:        serial('id').primaryKey(),
+  name:      text('name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+             .$onUpdate(() => new Date()),
+})
+
+export type <Entity>    = typeof <entities>.$inferSelect
+export type New<Entity> = typeof <entities>.$inferInsert
+```
+
+Add one line to the barrel (`server/db/schema.ts`): `export * from './schema/<entity>'`
+
+Run `npm run db:generate` to create the migration.
+
+## 4. Files to create (collection resource)
+
+### Repository
+```ts
+// server/repositories/<entity>.repository.ts
 import { db, schema } from '@nuxthub/db'
 import { eq } from 'drizzle-orm'
-import type { New<Entity>, <Entity> } from '../db/schema'
+import type { <Entity>, New<Entity> } from '../db/schema'
 
 export const <entity>Repository = {
   findAll(): Promise<<Entity>[]> {
-    return db.query.<entities>.findMany({
-      orderBy: (t, { desc }) => [desc(t.createdAt)],
-    })
+    return db.query.<entities>.findMany({ orderBy: (t, { desc }) => [desc(t.createdAt)] })
   },
   findById(id: number): Promise<<Entity> | undefined> {
     return db.query.<entities>.findFirst({ where: eq(schema.<entities>.id, id) })
   },
   async create(data: New<Entity>): Promise<<Entity>> {
     const [row] = await db.insert(schema.<entities>).values(data).returning()
-    return row! // INSERT...RETURNING always yields one row (see TS note below)
+    return row!
   },
   async update(id: number, data: Partial<New<Entity>>): Promise<<Entity> | undefined> {
     const [row] = await db.update(schema.<entities>).set(data)
@@ -160,72 +133,68 @@ export const <entity>Repository = {
     return row
   },
   async delete(id: number): Promise<boolean> {
-    const rows = await db.delete(schema.<entities>)
+    const deleted = await db.delete(schema.<entities>)
       .where(eq(schema.<entities>.id, id)).returning({ id: schema.<entities>.id })
-    return rows.length > 0
+    return deleted.length > 0
   },
 }
 ```
 
-### 4b. Service — `server/services/<entity>.service.ts`
+### Service
 ```ts
+// server/services/<entity>.service.ts
 import { <entity>Repository } from '../repositories/<entity>.repository'
 import { notFound } from '../utils/errors'
+import type { New<Entity> } from '../db/schema'
 
 export const <entity>Service = {
-  list() {
-    return <entity>Repository.findAll()
-  },
-  async getById(id: number) {
+  list()                      { return <entity>Repository.findAll() },
+  async getById(id: number)   {
     const row = await <entity>Repository.findById(id)
     if (!row) throw notFound('<Entity>')
     return row
   },
-  create(input: New<Entity>) {
-    // Add business rules here (uniqueness, ownership, etc.) before persisting.
-    return <entity>Repository.create(input)
-  },
-  async update(id: number, input: Partial<New<Entity>>) {
-    await this.getById(id) // 404 if missing
-    return <entity>Repository.update(id, input)
+  create(data: New<Entity>)   { return <entity>Repository.create(data) },
+  async update(id: number, data: Partial<New<Entity>>) {
+    await this.getById(id)
+    return <entity>Repository.update(id, data)
   },
   async remove(id: number) {
-    const ok = await <entity>Repository.delete(id)
-    if (!ok) throw notFound('<Entity>')
+    await this.getById(id)
+    await <entity>Repository.delete(id)
   },
 }
 ```
-> If a field must be unique, add a `findByX` to the repository and check it here,
-> throwing `conflict(...)` — see `userService.register`.
 
-### 4c. Zod schemas — `shared/schemas/v1/<entity>.schema.ts`
+### Zod schemas
 ```ts
+// shared/schemas/v1/<entity>.schema.ts
 import { z } from 'zod'
 
 export const create<Entity>V1Schema = z.object({
-  // one line per user-writable field; never include id/createdAt/updatedAt
+  name: z.string().min(1).max(120),
 })
 
-// PATCH: .partial() (every field optional) + .strict() (REJECT unknown keys, so a
-// caller can't mass-assign id/createdAt/updatedAt/role) + .refine() (require ≥1 field).
-// The .strict() is mandatory — omitting it reopens mass-assignment. See the api skill.
-export const update<Entity>V1Schema = create<Entity>V1Schema.partial().strict()
+export const update<Entity>V1Schema = create<Entity>V1Schema
+  .partial()
+  .strict()
   .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field' })
 
 export type Create<Entity>V1 = z.infer<typeof create<Entity>V1Schema>
 export type Update<Entity>V1 = z.infer<typeof update<Entity>V1Schema>
 ```
 
-### 4d. Presenter — `server/utils/presenters/<entity>.v1.ts`
+### Presenter
 ```ts
+// server/utils/presenters/<entity>.v1.ts
 import type { <Entity> } from '../../db/schema'
 
 export function present<Entity>V1(row: <Entity>) {
   return {
-    id: row.id,
-    // expose fields in the v1 contract; convert dates as needed.
-    // NEVER expose a secret column (passwordHash/tokenHash/codeHash/raw tokens).
-    created_at: row.createdAt.getTime(),
+    id:         row.id,
+    name:       row.name,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
   }
 }
 
@@ -234,7 +203,7 @@ export function present<Entity>ListV1(rows: <Entity>[]) {
 }
 ```
 
-### 4e. Routes — `server/api/v1/<resource>/`
+### Route handlers
 
 `index.get.ts`
 ```ts
@@ -254,9 +223,8 @@ import { present<Entity>V1 } from '../../../utils/presenters/<entity>.v1'
 
 export default defineEventHandler(async (event) => {
   const body = await readValidatedBody(event, create<Entity>V1Schema.parse)
-  const row = await <entity>Service.create(body)
   setResponseStatus(event, 201)
-  return present<Entity>V1(row)
+  return present<Entity>V1(await <entity>Service.create(body))
 })
 ```
 
@@ -285,7 +253,7 @@ const paramsSchema = z.object({ id: z.coerce.number().int().positive() })
 
 export default defineEventHandler(async (event) => {
   const { id } = await getValidatedRouterParams(event, paramsSchema.parse)
-  const body = await readValidatedBody(event, update<Entity>V1Schema.parse)
+  const body   = await readValidatedBody(event, update<Entity>V1Schema.parse)
   return present<Entity>V1((await <entity>Service.update(id, body))!)
 })
 ```
@@ -309,30 +277,26 @@ export default defineEventHandler(async (event) => {
 
 ## 5. NuxtHub gotchas (do NOT do these)
 - **Do not** create or edit `drizzle.config.ts` — NuxtHub generates it.
-- **Do not** add `@nuxthub/db` to `package.json` — it is auto-generated from the schema on `nuxt dev` / `nuxt build`.
-- **Do not** define a table anywhere except `server/db/schema/<entity>.ts`, and always re-export it from the `server/db/schema.ts` barrel.
+- **Do not** add `@nuxthub/db` to `package.json` — it is auto-generated from the schema.
+- **Do not** define a table anywhere except `server/db/schema/<entity>.ts`; always re-export from the barrel.
 - **Do not** import `@nuxthub/db` outside the repository layer.
-- Use `import.meta` / Nitro auto-imports (`defineEventHandler`, `readValidatedBody`, `getValidatedRouterParams`, `createError`, `setResponseStatus`) — they don't need importing in `server/`.
+- Use Nitro auto-imports (`defineEventHandler`, `readValidatedBody`, `getValidatedRouterParams`, `createError`, `setResponseStatus`) — they don't need importing in `server/`.
 
-### TypeScript gotcha (this project has `noUncheckedIndexedAccess`)
-`const [row] = await db…returning()` is typed `T | undefined`. So:
-- Methods that ALWAYS return one row (`create`, `upsert`): `return row!` and
-  declare a non-optional return type (`Promise<<Entity>>`).
-- Methods that MAY find nothing (`findById`, `update` by arbitrary id): keep the
-  return type `Promise<<Entity> | undefined>` and return `row` as-is.
-- At the route, when you know the row exists (e.g. after a `getById` guard),
-  assert at the call site: `present<Entity>V1((await service.update(id, b))!)`.
+### TypeScript gotcha (`noUncheckedIndexedAccess`)
+`const [row] = await db…returning()` is `T | undefined`.
+- Always-one-row ops (`create`, `upsert`): `return row!` with non-optional return type.
+- May-be-missing ops (`findById`, `update` by arbitrary id): keep `| undefined`.
+- When caller knows row exists (after a guard): `present<Entity>V1((await service.update(id, b))!)`.
 
 ---
 
-## 6. Definition of done (verify before finishing)
+## 6. Definition of done
 - [ ] Table re-exported from `server/db/schema.ts`.
 - [ ] Repository created; it is the only new file importing `@nuxthub/db`.
 - [ ] Service created; contains zero HTTP references; throws `notFound`/`conflict`.
-- [ ] Zod create + update schemas in `shared/schemas/v1/`; the update schema uses
-      `.partial().strict().refine(...)` (`.strict()` present).
+- [ ] Zod create + update schemas in `shared/schemas/v1/`; update schema uses `.partial().strict().refine(...)`.
 - [ ] v1 presenter created; no secret columns exposed.
-- [ ] All five route handlers created and each is thin (validate → service → present).
+- [ ] All five route handlers created and each is thin (validate → service → present, ~10 lines).
 - [ ] No business logic in handlers; no DB calls outside the repository.
 - [ ] `npx nuxt typecheck` passes (or report the errors).
 - [ ] Migration generated: `npm run db:generate`.
@@ -341,11 +305,9 @@ export default defineEventHandler(async (event) => {
 
 ## 7. Scaffolding a new resource
 
-Preferred: invoke the **resource-scaffolder** agent
-(`.claude/agents/resource-scaffolder.md`) — it follows this file plus the
-api/database skills, generates the slice, and typechecks.
+Preferred: invoke the **resource-scaffolder** agent (`.claude/agents/resource-scaffolder.md`).
 
-To drive any agent manually, paste:
+Manual prompt:
 
 > Read `AGENTS.md` and follow it exactly. Generate the complete **v1 CRUD slice**
 > for `<entity>` (table at `server/db/schema/<entity>.ts`), using the `users`
@@ -355,6 +317,5 @@ To drive any agent manually, paste:
 > thin, all Drizzle in the repository, the service HTTP-agnostic. Then run
 > `npx nuxt typecheck` and `npm run db:generate`, and list every file changed.
 
-For a **singleton** (one config row, get + upsert — like `infos`), follow the api
-skill §2 instead of the five-route shape. `users` (collection) and `infos`
-(singleton) are the two **reference** implementations — don't re-scaffold them.
+For a **singleton** (one config row, `GET` public + `POST`/`PATCH` upsert), follow
+the api skill §2 instead. Don't re-scaffold any of the five existing singletons.
