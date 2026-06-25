@@ -1,6 +1,13 @@
+<script lang="ts" setup>
+import { UiHead } from './components/ui/head/'
+</script>
+
 <template>
-  <div>
-    <NuxtRouteAnnouncer />
-    <NuxtWelcome />
-  </div>
+  <UiHead />
+  <NuxtLoadingIndicator />
+  <NuxtLayout>
+    <NuxtPage />
+  </NuxtLayout>
+  <ClientOnly>
+  </ClientOnly>
 </template>

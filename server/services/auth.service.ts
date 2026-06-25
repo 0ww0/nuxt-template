@@ -1,0 +1,189 @@
+import { randomBytes, scrypt, timingSafeEqual, createHash } from 'node:crypto'
+import { promisify } from 'node:util'
+import { userRepository } from '../repositories/user.repository'
+import { passwordResetTokenRepository } from '../repositories/passwordResetToken.repository'
+import { emailVerificationTokenRepository } from '../repositories/emailVerificationToken.repository'
+import { sessionService } from './session.service'
+import { sendMail } from '../utils/mailer'
+import { conflict, notFound, unauthorized } from '../utils/errors'
+import type { User } from '../db/schema'
+import type { UserRole } from '../../shared/auth/roles'
+
+// SERVICE LAYER — core auth business rules. HTTP-agnostic.
+// Password hashing uses node:crypto scrypt (no extra dependency). Requires a
+// Node runtime (this template's Docker image runs `node-server`). On a pure
+// edge/serverless runtime, swap to Web Crypto PBKDF2.
+
+// ASYNC scrypt — runs the KDF on the libuv threadpool instead of blocking the
+// single Node event loop. scryptSync would freeze ALL request handling for the
+// full hash duration; under concurrent logins that serializes every request in
+// the process. Each concurrent hash occupies one threadpool slot (default 4 —
+// raise UV_THREADPOOL_SIZE on the container if auth concurrency is high).
+const scryptAsync = promisify(scrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+) => Promise<Buffer>
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16)
+  const derived = await scryptAsync(password, salt, 64)
+  return `${salt.toString('hex')}:${derived.toString('hex')}`
+}
+
+async function verifyPassword(password: string, stored: string): Promise<boolean> {
+  const [saltHex, hashHex] = stored.split(':')
+  if (!saltHex || !hashHex) return false
+  try {
+    const derived = await scryptAsync(password, Buffer.from(saltHex, 'hex'), 64)
+    const hash = Buffer.from(hashHex, 'hex')
+    return derived.length === hash.length && timingSafeEqual(derived, hash)
+  } catch {
+    // Corrupted stored hash (invalid hex, zero-length salt, etc.) —
+    // treat as a mismatch rather than bubbling up as a 500.
+    return false
+  }
+}
+
+// Decoy hash for LOGIN TIMING EQUALIZATION (anti-enumeration). When the email
+// doesn't exist (or has no password), we must still spend the same scrypt time
+// as a real verification — otherwise the faster "no such user" response leaks
+// which emails are registered. Computed once at module load over a throwaway
+// secret; the raw value is irrelevant since the comparison result is discarded.
+const decoyHashPromise = hashPassword(randomBytes(32).toString('hex'))
+
+// Fast SHA-256 for one-time tokens (not passwords — these already carry
+// 256 bits of CSPRNG entropy so no slow KDF needed).
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+const RESET_TTL_MS = 60 * 60 * 1000          // reset links valid 1 h
+const EMAIL_VERIFY_TTL_MS = 24 * 60 * 60 * 1000 // verify links valid 24 h
+
+async function issueEmailVerification(user: User): Promise<void> {
+  await emailVerificationTokenRepository.deleteByUserId(user.id)
+  const rawToken = randomBytes(32).toString('base64url')
+  await emailVerificationTokenRepository.create({
+    userId: user.id,
+    tokenHash: sha256(rawToken),
+    expiresAt: new Date(Date.now() + EMAIL_VERIFY_TTL_MS),
+  })
+  const appUrl = useRuntimeConfig().public.appUrl
+  const link = `${appUrl}/verify-email?token=${rawToken}`
+  await sendMail({
+    to: user.email,
+    subject: 'Verify your email',
+    text: `Confirm your email address (valid for 24 hours):\n${link}`,
+  })
+}
+
+export const authService = {
+  // `role` only ever set by trusted internal callers (seed, admin endpoint),
+  // never from a public request body.
+  async register(input: {
+    email: string
+    name: string
+    password: string
+    role?: UserRole
+  }): Promise<User> {
+    const existing = await userRepository.findByEmail(input.email)
+    if (existing) throw conflict('Email already in use')
+    const user = await userRepository.create({
+      email: input.email,
+      name: input.name,
+      role: input.role ?? 'user',
+      passwordHash: await hashPassword(input.password),
+    })
+    try {
+      await issueEmailVerification(user)
+    } catch (err) {
+      console.error('[auth] could not send verification email', err)
+    }
+    return user
+  },
+
+  // Returns either the user (MFA disabled → caller creates session) or
+  // { mfaRequired: true, userId } (MFA enabled → caller sends OTP, no session yet).
+  async login(
+    email: string,
+    password: string,
+  ): Promise<User | { mfaRequired: true; userId: number }> {
+    const user = await userRepository.findByEmail(email)
+
+    // Missing account / credential-less user: still burn one scrypt against the
+    // decoy so this path costs the same as a real verification, then fail
+    // generically. Without this, response latency distinguishes real emails.
+    if (!user || !user.passwordHash) {
+      await verifyPassword(password, await decoyHashPromise)
+      throw unauthorized('Invalid email or password')
+    }
+
+    if (!(await verifyPassword(password, user.passwordHash))) {
+      throw unauthorized('Invalid email or password')
+    }
+
+    if (user.mfaEnabled) {
+      return { mfaRequired: true as const, userId: user.id }
+    }
+    return user
+  },
+
+  // ---- Password reset (Step 2) -------------------------------------------
+
+  async requestPasswordReset(email: string): Promise<void> {
+    const user = await userRepository.findByEmail(email)
+    if (!user || !user.passwordHash) return // anti-enumeration: silent no-op
+
+    await passwordResetTokenRepository.deleteByUserId(user.id)
+    const rawToken = randomBytes(32).toString('base64url')
+    await passwordResetTokenRepository.create({
+      userId: user.id,
+      tokenHash: sha256(rawToken),
+      expiresAt: new Date(Date.now() + RESET_TTL_MS),
+    })
+
+    const appUrl = useRuntimeConfig().public.appUrl
+    const link = `${appUrl}/reset-password?token=${rawToken}`
+
+    // A mail failure (transport down, or unconfigured in prod where sendMail
+    // throws by design) must NOT bubble up here. The unknown-email path above
+    // returns a generic 200; if this registered-email path threw, the
+    // 500-vs-200 difference would enumerate accounts. Log and return normally
+    // so the response is identical regardless of account existence or delivery.
+    try {
+      await sendMail({
+        to: user.email,
+        subject: 'Reset your password',
+        text: `Use this link to reset your password (valid for 1 hour):\n${link}\n\nIf you didn't request this, you can ignore this email.`,
+      })
+    } catch (err) {
+      console.error('[auth] could not send password reset email', err)
+    }
+  },
+
+  async resetPassword(token: string, newPassword: string): Promise<void> {
+    const record = await passwordResetTokenRepository.findUsableByHash(sha256(token))
+    if (!record) throw unauthorized('Invalid or expired reset token')
+
+    await userRepository.update(record.userId, { passwordHash: await hashPassword(newPassword) })
+    await passwordResetTokenRepository.deleteByUserId(record.userId)
+    await sessionService.revokeAllForUser(record.userId)
+  },
+
+  // ---- Email verification (Step 3) ---------------------------------------
+
+  async resendEmailVerification(userId: number): Promise<void> {
+    const user = await userRepository.findById(userId)
+    if (!user) throw notFound('User')
+    if (user.emailVerifiedAt) return // already verified → no-op
+    await issueEmailVerification(user)
+  },
+
+  async verifyEmail(token: string): Promise<void> {
+    const record = await emailVerificationTokenRepository.findUsableByHash(sha256(token))
+    if (!record) throw unauthorized('Invalid or expired verification token')
+    await userRepository.update(record.userId, { emailVerifiedAt: new Date() })
+    await emailVerificationTokenRepository.deleteByUserId(record.userId)
+  },
+}

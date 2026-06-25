@@ -7,11 +7,33 @@
     "dev": "nuxt dev",
     "generate": "nuxt generate",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
-    "nuxt": "^4.4.6",
-    "vue": "^3.5.34",
-    "vue-router": "^5.0.7"
+    "@electric-sql/pglite": "^0.5.3",
+    "@nuxthub/core": "^0.10.7",
+    "@pinia/nuxt": "^0.11.3",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.45.2",
+    "nodemailer": "^9.0.1",
+    "nuxt": "^4.4.8",
+    "pinia": "^3.0.4",
+    "postgres": "^3.4.9",
+    "tailwindcss": "^4.3.1",
+    "vue": "^3.5.38",
+    "vue-router": "^5.1.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@storybook/addon-a11y": "^10.4.6",
+    "@storybook/addon-docs": "^10.4.6",
+    "@storybook/vue3-vite": "^10.4.6",
+    "@tailwindcss/vite": "^4.3.1",
+    "@types/nodemailer": "^8.0.1",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "storybook": "^10.4.6",
+    "vue-tsc": "^3.3.5"
   }
 }

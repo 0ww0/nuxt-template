@@ -1,0 +1,108 @@
+# ══════════════════════════════════════════════════════════════════
+# DEVELOPMENT Docker Compose — PostgreSQL + Mailpit
+# ══════════════════════════════════════════════════════════════════
+#
+# Runs PostgreSQL and Mailpit (a local SMTP catcher) in Docker. The
+# Nuxt app runs locally with `npm run dev` for hot-reload and fast
+# iteration.
+#
+# Filesystem storage (blob, KV, cache) uses your local .data/
+# directory — no Docker needed for those in development.
+#
+# ── Quick Start ──────────────────────────────────────────────────
+#   1. Copy .env.example to .env and set:
+#      DATABASE_URL=postgresql://nuxt:nuxt@localhost:5432/nuxtdb
+#      SMTP_HOST=localhost
+#      SMTP_PORT=1025
+#
+#   2. Start PostgreSQL + Mailpit:
+#      docker compose -f docker-compose.dev.yml up -d
+#
+#   3. Start Nuxt locally:
+#      npm run dev
+#
+#   4. Open http://localhost:3000
+#      Mail UI: http://localhost:8025  (every outbound email lands here —
+#      nothing is ever delivered externally in dev)
+#
+# ── Other Commands ───────────────────────────────────────────────
+#   docker compose -f docker-compose.dev.yml logs -f    # Follow logs (db + mail)
+#   docker compose -f docker-compose.dev.yml ps         # Check status
+#   docker compose -f docker-compose.dev.yml down       # Stop containers
+#   docker compose -f docker-compose.dev.yml down -v    # Stop + delete DB data
+#
+# ── Access ───────────────────────────────────────────────────────
+#   Nuxt App:       http://localhost:3000  (via npm run dev)
+#   Nuxt DevTools:  http://localhost:3000  (includes Drizzle Studio)
+#   Postgres:       localhost:5432  (user: nuxt, password: nuxt, db: nuxtdb)
+#   Mailpit UI:     http://localhost:8025  (view caught emails)
+#   Mailpit SMTP:   localhost:1025  (what the app connects to)
+#
+# ── Environment Variables ────────────────────────────────────────
+#   Set in your .env file for the local Nuxt dev server:
+#   DATABASE_URL=postgresql://nuxt:nuxt@localhost:5432/nuxtdb
+#   SMTP_HOST=localhost
+#   SMTP_PORT=1025
+#
+#   Note: In dev, hosts are "localhost" (not "db"/"mail") because the
+#   Nuxt app runs outside Docker and connects to the exposed ports.
+#
+# ── What runs where in dev? ──────────────────────────────────────
+#   PostgreSQL   → Docker (this file)   — localhost:5432
+#   Mailpit      → Docker (this file)   — localhost:1025 (SMTP), :8025 (UI)
+#   Nuxt app     → Local (npm run dev)  — localhost:3000
+#   DevTools     → Local (via Nuxt)     — includes Drizzle Studio
+#   Blob (fs)    → Local .data/blob/    — no Docker needed
+#   KV (fs)      → Local .data/kv/      — no Docker needed
+#   Cache (fs)   → Local .data/cache/   — no Docker needed
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  # ──────────────────────────────────────────
+  # PostgreSQL 16
+  # Image: postgres:16-alpine (~240MB)
+  # Alpine-based PostgreSQL 16 (current stable LTS).
+  # Data is persisted in the pg_data_dev named volume
+  # (separate from production to avoid conflicts).
+  # ──────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nuxt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nuxt}
+      POSTGRES_DB: ${POSTGRES_DB:-nuxtdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nuxt} -d ${POSTGRES_DB:-nuxtdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────
+  # Mailpit
+  # Image: axllent/mailpit:latest (~15MB)
+  # Catches all outbound SMTP mail and shows it in a web UI — nothing
+  # is ever delivered externally. Pair with server/utils/mailer.ts's
+  # SMTP branch (SMTP_HOST/SMTP_PORT pointed at this container).
+  # No persistence needed; messages are ephemeral and reset with the
+  # container in dev.
+  # ──────────────────────────────────────────
+  mail:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "8025:8025" # Web UI
+      - "1025:1025" # SMTP
+    environment:
+      MP_MAX_MESSAGES: 5000
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+
+volumes:
+  pg_data_dev:
+    driver: local

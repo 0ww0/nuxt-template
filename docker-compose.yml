@@ -1,0 +1,138 @@
+# ══════════════════════════════════════════════════════════════════
+# PRODUCTION Docker Compose — Nuxt App + PostgreSQL + Caddy
+# ══════════════════════════════════════════════════════════════════
+#
+# Runs the full production stack in Docker containers.
+# The Nuxt app is built from the Dockerfile (multi-stage, node:22-alpine)
+# and served via Nitro's node-server preset.
+# Caddy acts as a reverse proxy so you can access the app at
+# http://dev.local (port 80) without a visible port number.
+#
+# ── Prerequisites ────────────────────────────────────────────────
+#   Add this line to your hosts file (run as Administrator):
+#     PowerShell:
+#       Add-Content C:\Windows\System32\drivers\etc\hosts "127.0.0.1  dev.local"
+#     Or manually edit: C:\Windows\System32\drivers\etc\hosts
+#
+# ── Quick Start ──────────────────────────────────────────────────
+#   docker compose up -d            # Start all services (build + run)
+#   docker compose up -d --build    # Rebuild image and start
+#   docker compose logs -f app      # Follow app logs
+#   docker compose logs -f db       # Follow database logs
+#   docker compose logs -f caddy    # Follow proxy logs
+#   docker compose ps               # Check running containers
+#   docker compose down             # Stop all services
+#   docker compose down -v          # Stop and DELETE all volumes (⚠️ data loss)
+#
+# ── Access ───────────────────────────────────────────────────────
+#   App:      http://dev.local      (via Caddy reverse proxy, port 80)
+#   App:      http://localhost:3000 (direct, bypasses proxy)
+#   Postgres: localhost:5432        (user: nuxt, password: nuxt, db: nuxtdb)
+#
+# ── Environment Variables ────────────────────────────────────────
+#   Override defaults by creating a .env file (see .env.example).
+#   POSTGRES_USER       (default: nuxt)
+#   POSTGRES_PASSWORD   (default: nuxt)
+#   POSTGRES_DB         (default: nuxtdb)
+#   DATABASE_URL        (default: postgresql://nuxt:nuxt@db:5432/nuxtdb)
+#   NUXT_APP_PORT       (default: 3000)
+#
+# ── Persistent Volumes ───────────────────────────────────────────
+#   pg_data      — PostgreSQL database files
+#   app_blob     — NuxtHub blob storage (filesystem driver)
+#   app_kv       — NuxtHub KV storage (filesystem driver)
+#   app_cache    — NuxtHub cache storage (filesystem driver)
+#   caddy_data   — Caddy certificates and persistent data
+#   caddy_config — Caddy auto-generated config
+#
+# ── Notes ────────────────────────────────────────────────────────
+#   • Database migrations are NOT run automatically.
+#     Run them via CI or manually: npx drizzle-kit migrate
+#   • The app container waits for PostgreSQL to be healthy before starting.
+#   • The app runs as a non-root user (nuxt, UID 1001) for security.
+#   • Caddy proxies port 80 → app:3000 inside the Docker network.
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  # ──────────────────────────────────────────
+  # Caddy Reverse Proxy
+  # Image: caddy:2-alpine (~40MB)
+  # Proxies http://dev.local (port 80) → app:3000
+  # Config file: ./Caddyfile
+  # ──────────────────────────────────────────
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro  # Caddy config (read-only)
+      - caddy_data:/data                      # Certificates & persistent data
+      - caddy_config:/config                  # Auto-generated config
+    depends_on:
+      - app
+
+  # ──────────────────────────────────────────
+  # PostgreSQL 16
+  # Image: postgres:16-alpine (~240MB)
+  # Alpine-based PostgreSQL 16 (current stable LTS).
+  # Data is persisted in the pg_data named volume.
+  # ──────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nuxt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nuxt}
+      POSTGRES_DB: ${POSTGRES_DB:-nuxtdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nuxt} -d ${POSTGRES_DB:-nuxtdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # ──────────────────────────────────────────
+  # Nuxt App (Production)
+  # Image: Built from ./Dockerfile (node:22-alpine, multi-stage)
+  # The Dockerfile builds the Nuxt app with NITRO_PRESET=node-server
+  # and produces a minimal production image containing only .output/.
+  # Entry point: node .output/server/index.mjs
+  # Not exposed directly on host — accessed via Caddy at http://dev.local
+  # ──────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${NUXT_APP_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgresql://nuxt:nuxt@db:5432/nuxtdb}
+    volumes:
+      # Persistent storage for NuxtHub features (filesystem drivers)
+      - app_blob:/app/.data/blob     # Blob file storage
+      - app_kv:/app/.data/kv         # Key-value storage
+      - app_cache:/app/.data/cache   # Cache storage
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pg_data:
+    driver: local
+  app_blob:
+    driver: local
+  app_kv:
+    driver: local
+  app_cache:
+    driver: local
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

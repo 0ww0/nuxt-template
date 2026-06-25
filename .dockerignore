@@ -1,0 +1,40 @@
+# Dependencies
+node_modules
+
+# Nuxt build outputs
+.output
+.nuxt
+.nitro
+.cache
+dist
+
+# Local data
+.data
+
+# Version control
+.git
+.gitignore
+
+# IDE
+.fleet
+.idea
+.vscode
+
+# Logs
+logs
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.yml
+docker-compose*.yml
+Dockerfile
+.dockerignore
