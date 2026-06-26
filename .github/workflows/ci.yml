@@ -206,19 +206,26 @@ jobs:
       #
       #    Allowed exceptions:
       #      *setRole*.ts   — dedicated role-mutation endpoint schemas
-      #      auth.schema.ts — login/register may include role for display only
+      #      auth.schema.ts — presentAuthUserV1 response type includes role (read-only)
+      #      user.schema.ts — createUserV1Schema is admin-only provisioning (POST /api/v1/users),
+      #                       guarded by requireMinRole('admin') + assertCanAssignRole(actor, role).
+      #                       The public self-registration schema (registerV1Schema in auth.schema.ts)
+      #                       never accepts role. updateUserV1Schema explicitly omits it via .omit().
       # ──────────────────────────────────────────────
       - name: Check role not exposed in public schemas
         run: |
           FAILED=0
           for file in $(grep -rl "\brole\b" shared/schemas/ --include="*.ts" 2>/dev/null \
-            | grep -v "setRole" | grep -v "auth.schema"); do
+            | grep -v "setRole" \
+            | grep -v "auth.schema" \
+            | grep -v "user.schema"); do
             echo "ERROR: $file exposes 'role' — role must not be in public create/update schemas"
-            echo "  Role should only appear in dedicated setRoleV1Schema files."
+            echo "  Role should only appear in dedicated setRoleV1Schema files,"
+            echo "  auth.schema.ts (presenter types), or user.schema.ts (admin-only provisioning)."
             FAILED=1
           done
           if [ "$FAILED" -eq 1 ]; then exit 1; fi
-          echo "✓ No public schema exposes role"
+          echo "✓ No unexpected schema exposes role"
 
       # ──────────────────────────────────────────────
       # 8. RATE_LIMITS.md staleness check
