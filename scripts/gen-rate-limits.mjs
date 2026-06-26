@@ -15,7 +15,7 @@
  * Add a new checkRateLimit() call → re-run this script → commit both files.
  */
 
-import { readdir, readFile, writeFile, stat } from 'node:fs/promises'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 
 const ROOT = new URL('..', import.meta.url).pathname
@@ -105,11 +105,13 @@ function extractNum(body, key) {
   }
 }
 
+/**
+ * Always express in minutes — keeps the doc stable and matches the policy
+ * values developers write in handler files (e.g. 60 * 60_000 → 60 min).
+ */
 function msToHuman(ms) {
   const minutes = ms / 60_000
-  if (minutes < 60) return `${minutes} min`
-  const hours = minutes / 60
-  return Number.isInteger(hours) ? `${hours} hr` : `${(minutes / 60).toFixed(1)} hr`
+  return `${minutes} min`
 }
 
 function formatPolicy(maxAttempts, windowMs, lockoutMs) {
@@ -118,11 +120,19 @@ function formatPolicy(maxAttempts, windowMs, lockoutMs) {
 
 function formatAccountBucket(accountKeyExpr, maxAttempts, windowMs) {
   if (!accountKeyExpr) return '—'
-  // Derive a human-readable label from the key expression
+  // Derive a human-readable label from the key expression.
+  // Mirror the labels used in the committed RATE_LIMITS.md:
+  //   email / String(user.id) / String(userId) / String(user_id) → userId / email
   let label = 'key'
-  if (/email/.test(accountKeyExpr)) label = 'email'
-  else if (/userId|user_id/.test(accountKeyExpr)) label = 'userId'
-  else if (/String\(/.test(accountKeyExpr)) label = accountKeyExpr.replace(/String\(|\)/g, '').trim()
+  if (/email/.test(accountKeyExpr)) {
+    label = 'email'
+  } else if (/userId|user_id|user\.id/.test(accountKeyExpr)) {
+    label = 'userId'
+  } else if (/String\(/.test(accountKeyExpr)) {
+    // e.g. String(someOtherKey) — strip the wrapper
+    label = accountKeyExpr.replace(/String\(|\)/g, '').trim()
+  }
+  // checkRateLimit uses Math.ceil(maxAttempts / 2) for the account bucket
   const halfMax = Math.ceil(maxAttempts / 2)
   return `${label} (${halfMax} / ${msToHuman(windowMs)})`
 }
