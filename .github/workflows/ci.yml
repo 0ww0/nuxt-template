@@ -11,7 +11,6 @@ jobs:
     name: Lint, type-check & convention checks
     runs-on: ubuntu-latest
 
-    # Fix 6 — Postgres service for migration drift check
     services:
       postgres:
         image: postgres:16-alpine
@@ -38,189 +37,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ──────────────────────────────────────────────
-      # 1. TypeScript — hard gate, must pass before merge
-      # ──────────────────────────────────────────────
+      # 1. TypeScript — hard gate
       - name: Type check
         run: npx nuxt typecheck
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
 
-      # ──────────────────────────────────────────────
-      # 1b. Nitro build — catches bundler errors typecheck misses
-      #
-      #    Fix 5: npx nuxt typecheck validates TypeScript but does not run
-      #    the Nitro bundler. A misconfigured hub.db.dialect, broken
-      #    auto-import, or invalid plugin will pass typecheck and blow up
-      #    on deploy. The build does not need a running Postgres — the dummy
-      #    DATABASE_URL satisfies any env validation that fires at build time.
-      # ──────────────────────────────────────────────
+      # 1b. Nitro build — catches bundler errors typecheck misses (bad hub.db
+      #     dialect, broken auto-import, invalid plugin). Build doesn't need a
+      #     live DB — the dummy URL satisfies any build-time env validation.
       - name: Build
         run: npm run build
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
-          NUXT_SESSION_SECRET: ci-build-secret-32-chars-minimum-x
 
-      # ──────────────────────────────────────────────
-      # 2. Layer discipline — @nuxthub/db only in repositories/ or tasks/
+      # 2. Convention & security guardrails — SINGLE SOURCE OF TRUTH.
+      #    Runs the same script developers run locally (scripts/check-conventions.sh),
+      #    which itself delegates the role check to scripts/check-role-schemas.sh.
+      #    Keeping these in the script (not inlined here) is what stops CI from
+      #    drifting away from the local checks — the exact failure that
+      #    re-introduced the broken role gate.
       #
-      #    Fix 2: replaced GNU-only --exclude-path with portable grep -v
-      #    pipeline so this works identically on macOS BSD grep and Linux.
-      # ──────────────────────────────────────────────
-      - name: Check @nuxthub/db import discipline
-        run: |
-          VIOLATIONS=$(grep -rl "from '@nuxthub/db'" server/ --include="*.ts" 2>/dev/null \
-            | grep -v "repositories/" \
-            | grep -v "tasks/" \
-            || true)
-          if [ -n "$VIOLATIONS" ]; then
-            echo "ERROR: @nuxthub/db imported outside server/repositories/ or server/tasks/:"
-            echo "$VIOLATIONS"
-            exit 1
-          fi
-          echo "✓ @nuxthub/db imports are confined to repositories and tasks"
+      #    Covers: @nuxthub/db layering · services HTTP-agnostic ·
+      #    .partial()⇒.strict() · role only in edge-gated schemas ·
+      #    webhook signature · singleton cache-purge key ·
+      #    secret columns / presenter spreads · unthrottled-handler warning.
+      - name: Convention & security guardrails
+        run: bash scripts/check-conventions.sh
 
-      # ──────────────────────────────────────────────
-      # 3. Layer discipline — no HTTP primitives in services/
-      #
-      #    Fix 3: replaced broad `event\.` pattern (which matched variable
-      #    names, comments, and non-H3 property accesses) with the specific
-      #    Nitro/H3 function names that actually indicate HTTP coupling.
-      #    This eliminates false positives without missing real violations.
-      # ──────────────────────────────────────────────
-      - name: Check services are HTTP-agnostic
-        run: |
-          VIOLATIONS=$(grep -rn \
-            "readBody\|readValidatedBody\|setResponseStatus\|getHeader\|setHeader\|setCookie\|getCookie\|getRequestIP\|defineEventHandler\b" \
-            server/services/ \
-            --include="*.ts" \
-            -l 2>/dev/null || true)
-          if [ -n "$VIOLATIONS" ]; then
-            echo "ERROR: HTTP primitives found in server/services/:"
-            echo "$VIOLATIONS"
-            echo "Services must be HTTP-agnostic — move HTTP logic to the route handler."
-            exit 1
-          fi
-          echo "✓ No HTTP primitives in services"
-
-      # ──────────────────────────────────────────────
-      # 4. Webhook signature enforcement
-      #
-      #    Every handler under server/api/webhooks/ must call
-      #    requireWebhookSignature(event) as its first line. The CSRF
-      #    middleware exemption is defense-in-depth only; the signature
-      #    check is the real gate.
-      # ──────────────────────────────────────────────
-      - name: Check webhook signature enforcement
-        run: |
-          FAILED=0
-          WEBHOOK_DIR="server/api/webhooks"
-          if [ -d "$WEBHOOK_DIR" ]; then
-            while IFS= read -r -d '' file; do
-              if ! grep -q "requireWebhookSignature" "$file"; then
-                echo "ERROR: $file does not call requireWebhookSignature(event)"
-                FAILED=1
-              fi
-            done < <(find "$WEBHOOK_DIR" -name "*.ts" -print0)
-          fi
-          if [ "$FAILED" -eq 1 ]; then
-            echo ""
-            echo "Every handler under server/api/webhooks/ must call"
-            echo "requireWebhookSignature(event) as its first line."
-            exit 1
-          fi
-          echo "✓ All webhook handlers call requireWebhookSignature"
-
-      # ──────────────────────────────────────────────
-      # 5. Warning — sensitive handlers that may be missing checkRateLimit
-      #    (non-blocking: some thin wrappers are intentionally exempt)
-      #
-      #    Fix 2: replaced GNU-only --exclude-path with portable grep -v.
-      #
-      #    Exclusions:
-      #      server/api/dev/*   — dev-only seeders, never rate-limited
-      #
-      #    Pattern targets only the expensive operations:
-      #      sendMail           — email sending
-      #      scryptAsync        — password hashing
-      #      mfaService.send    — OTP email dispatch
-      #      mfaService.verify  — OTP verification (brute-force target)
-      #
-      #    Deliberately excluded:
-      #      authService        — admin-gated create; requireMinRole protects it
-      #      mfaService.enable/disable — no crypto or email, just a flag flip
-      # ──────────────────────────────────────────────
-      - name: Warn on potentially unthrottled sensitive handlers
-        run: |
-          WARNED=0
-          for file in $(grep -rl "sendMail\|scryptAsync\|mfaService\.send\|mfaService\.verify" \
-            server/api/ --include="*.ts" 2>/dev/null \
-            | grep -v "/dev/"); do
-            if ! grep -q "checkRateLimit" "$file"; then
-              echo "WARNING: $file uses sendMail/scrypt/mfaService.send/verify but has no checkRateLimit — verify manually"
-              WARNED=1
-            fi
-          done
-          if [ "$WARNED" -eq 0 ]; then
-            echo "✓ No unthrottled sensitive handlers detected"
-          fi
-          # Not exit 1 — this is advisory only.
-
-      # ──────────────────────────────────────────────
-      # 6. PATCH schemas must use .strict() to block mass-assignment
-      #
-      #    Fix 4 (part 1): any schema that calls .partial() without .strict()
-      #    allows a client to send arbitrary fields including id, role, and
-      #    timestamps. This is a hard-fail security gate.
-      #
-      #    Fix: schema.partial().strict().refine(...)
-      # ──────────────────────────────────────────────
-      - name: Check PATCH schemas use .strict()
-        run: |
-          FAILED=0
-          for file in $(grep -rl "\.partial()" shared/schemas/ --include="*.ts" 2>/dev/null); do
-            if ! grep -q "\.strict()" "$file"; then
-              echo "ERROR: $file uses .partial() without .strict() — mass-assignment risk"
-              echo "  Fix: schema.partial().strict().refine(...)"
-              FAILED=1
-            fi
-          done
-          if [ "$FAILED" -eq 1 ]; then exit 1; fi
-          echo "✓ All PATCH schemas use .strict()"
-
-      # ──────────────────────────────────────────────
-      # 7. role must not appear in public create/update schemas
-      #
-      #    Fix 4 (part 2): role assignment must only happen through dedicated
-      #    setRole endpoints with assertCanAssignRole(actor, role). Accepting
-      #    role in a public body lets any user escalate their own privileges.
-      #
-      #    Allowed exceptions:
-      #      *setRole*.ts   — dedicated role-mutation endpoint schemas
-      #      auth.schema.ts — login/register may include role for display only
-      # ──────────────────────────────────────────────
-      - name: Check role not exposed in public schemas
-        run: |
-          FAILED=0
-          for file in $(grep -rl "\brole\b" shared/schemas/ --include="*.ts" 2>/dev/null \
-            | grep -v "setRole" | grep -v "auth.schema"); do
-            echo "ERROR: $file exposes 'role' — role must not be in public create/update schemas"
-            echo "  Role should only appear in dedicated setRoleV1Schema files."
-            FAILED=1
-          done
-          if [ "$FAILED" -eq 1 ]; then exit 1; fi
-          echo "✓ No public schema exposes role"
-
-      # ──────────────────────────────────────────────
-      # 8. Migration drift — schema changes must have a migration file
-      #
-      #    Fix 6: a developer who edits a schema file and forgets
-      #    `npm run db:generate` will get a broken deploy. This step
-      #    re-runs generation and fails if it produces any diff, meaning
-      #    there are uncommitted migration files.
-      #
-      #    Requires the Postgres service defined above.
-      # ──────────────────────────────────────────────
+      # 3. Migration drift — schema edits must ship a committed migration.
+      #    ⚠ VERIFY THE OUTPUT PATH below matches where `npm run db:generate`
+      #    actually writes for your NuxtHub setup. Run db:generate locally once
+      #    and see which directory changes; if it's not server/db/migrations/,
+      #    update the path here or the diff check silently passes (false green).
       - name: Check migration files are up to date
         run: |
           npm run db:generate
