@@ -65,7 +65,34 @@ jobs:
       - name: Convention & security guardrails
         run: bash scripts/check-conventions.sh
 
-      # 3. Migration drift — schema edits must ship a committed migration.
+      # 3. Rate-limit doc in sync with code — hard gate, no Postgres needed.
+      #    `gen-rate-limits.mjs` walks server/api/, finds every checkRateLimit()
+      #    call, and regenerates the table inside RATE_LIMITS.md between the
+      #    BEGIN/END markers. `git diff --exit-code` then fails if the committed
+      #    file doesn't match — catching both:
+      #      • a new/changed policy where the doc wasn't updated (wrong numbers)
+      #      • a new endpoint that calls checkRateLimit but has no table row
+      #    This is strictly better than hand-editing RATE_LIMITS.md: the doc is
+      #    always derived from the code, not maintained separately.
+      #
+      #    The companion "unthrottled handler" warning in check-conventions.sh
+      #    catches the DIFFERENT failure: a sensitive endpoint with NO
+      #    checkRateLimit call at all. Keep both — they cover different gaps.
+      #
+      #    One-time setup: run `node scripts/gen-rate-limits.mjs` locally once
+      #    and commit the result so the markers exist and the baseline is set.
+      - name: Rate-limit doc in sync with code
+        run: |
+          node scripts/gen-rate-limits.mjs
+          if ! git diff --exit-code RATE_LIMITS.md; then
+            echo ""
+            echo "ERROR: RATE_LIMITS.md is stale — checkRateLimit calls changed but the doc wasn't regenerated."
+            echo "Fix: run 'node scripts/gen-rate-limits.mjs' locally and commit the updated RATE_LIMITS.md."
+            exit 1
+          fi
+          echo "✓ RATE_LIMITS.md matches the checkRateLimit calls in code"
+
+      # 4. Migration drift — schema edits must ship a committed migration.
       #    ⚠ VERIFY THE OUTPUT PATH below matches where `npm run db:generate`
       #    actually writes for your NuxtHub setup. Run db:generate locally once
       #    and see which directory changes; if it's not server/db/migrations/,
