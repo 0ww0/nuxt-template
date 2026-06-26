@@ -71,4 +71,9 @@ export default defineNuxtConfig({
       appUrl: process.env.NUXT_PUBLIC_APP_URL ?? 'http://localhost:3000',
     },
   },
+  $production: {
+    nitro: {
+      ignore: ['tasks/db/seed.ts'],
+    },
+  },
 })
