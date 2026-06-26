@@ -9,16 +9,18 @@
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "build-storybook": "storybook build",
+    "db:generate": "nuxt db generate",
+    "db:migrate": "nuxt db migrate"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.3",
-    "@nuxthub/core": "^0.10.7",
+    "@nuxthub/core": "0.10.7",
     "@pinia/nuxt": "^0.11.3",
-    "drizzle-kit": "^0.31.10",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-kit": "0.31.10",
+    "drizzle-orm": "0.45.2",
     "nodemailer": "^9.0.1",
-    "nuxt": "^4.4.8",
+    "nuxt": "4.4.8",
     "pinia": "^3.0.4",
     "postgres": "^3.4.9",
     "tailwindcss": "^4.3.1",

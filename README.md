@@ -169,3 +169,22 @@ Open http://localhost:8025 to see emails. Without Mailpit, the mailer falls back
 - http://localhost:3000/api/v2/users — requires login; hides admin/super_admin rows
 
 No Docker? Point `DATABASE_URL` at any reachable Postgres — nothing else changes.
+
+## Upgrading core dependencies
+ 
+`@nuxthub/core`, `nuxt`, `drizzle-orm`, and `drizzle-kit` are pinned to exact
+versions in `package.json`. Minor bumps in these packages have historically
+introduced breaking schema generation, session middleware, or Nitro bundler
+behaviour — a failed deploy is worse than a manual upgrade step.
+ 
+To upgrade any of them:
+ 
+1. Change the version in `package.json`
+2. Run `npm install`
+3. Run `npm run db:generate` — inspect any new migration file before committing
+4. Run `npx nuxt typecheck`
+5. Run `npm run build`
+6. Check the NuxtHub + Drizzle changelogs for breaking changes
+7. Commit `package.json` and `package-lock.json` together in one PR
+All other packages (`tailwindcss`, `pinia`, `vue`, `zod`, etc.) keep `^` because
+their API surface touching this project is stable across minor versions.
