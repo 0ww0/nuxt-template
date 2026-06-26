@@ -26,4 +26,4 @@ logs
 *storybook.log
 storybook-static
 
-server/api/dev/*
+server/api/dev
