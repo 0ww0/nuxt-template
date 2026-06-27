@@ -40,7 +40,7 @@ util     server/utils/mailer.ts  →  sendMail({ to, subject, text })
    - `mfa_preauth_tokens` (`tokenHash`) — 10-min TTL; binds the MFA send/verify flow to a server-confirmed password check
 2. **User columns**: `emailVerifiedAt` (nullable timestamp — null = unverified) and `mfaEnabled` (boolean). Run `npm run db:generate`.
 3. **Mailer seam** (`server/utils/mailer.ts`) and `runtimeConfig.public.appUrl` for building links (see §5).
-4. **Cleanup task** — `server/tasks/auth/cleanup.ts` prunes all four token tables hourly; nothing extra to add per flow.
+4. **Cleanup task** — `server/tasks/auth/cleanup.ts` prunes all four token tables plus sessions and rate-limit attempts hourly (six tables total); nothing extra to add per flow.
 5. **Rate-limit actions** — every send/verify endpoint calls `checkRateLimit` (see rate-limit skill).
 
 ---

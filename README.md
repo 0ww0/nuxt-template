@@ -148,6 +148,8 @@ Use the **resource-scaffolder** agent (`.claude/agents/resource-scaffolder.md`):
 - **`resource-scaffolder`** — generates a complete resource slice, then runs `db:generate` + `typecheck`.
 - **`convention-reviewer`** — reviews a changeset against the hard rules. Reports only; never edits.
 
+> **`CLAUDE.md`** — the project root contains a `CLAUDE.md` that Claude Code reads automatically. It includes `@AGENTS.md` and points to `.claude/skills/` and `.claude/agents/`. No manual reading needed when using Claude Code — it loads this context automatically.
+
 ## Tooling & CI
 
 ```
