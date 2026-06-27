@@ -1,6 +1,6 @@
 import { pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core'
 
-// DB table is `informations`, exported as `infos`.
+// DB table is `informations`, exported as `infoSettings`.
 // Columns use camelCase keys; hub.db `casing: 'snake_case'` maps them to
 // snake_case columns automatically (e.g. ogImage -> og_image).
 //
