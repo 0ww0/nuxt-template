@@ -62,8 +62,11 @@ jobs:
       - name: Analyse diff vs main
         id: diff
         run: |
-          BASE=origin/main
-          git fetch origin main --depth=1
+          # Fetch main with enough history to find the merge base.
+          # --depth=1 is insufficient; fetch the full main branch so
+          # git can walk back to the common ancestor commit.
+          git fetch origin main
+          BASE=FETCH_HEAD
 
           # Files changed
           CHANGED=$(git diff --name-only "$BASE"...HEAD)
