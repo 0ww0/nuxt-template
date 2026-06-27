@@ -110,11 +110,11 @@ All thin: validate → `checkRateLimit` → service → cookie → present. Bodi
 | Route | Does | Status |
 |---|---|---|
 | `register.post.ts` | `checkRateLimit` → `authService.register` (409 if email taken) → `sessionService.create` → `setSessionCookie` | **201** |
-| `login.post.ts` | `checkRateLimit` → `authService.login` → if MFA: return `{ mfa_required, user_id }` (no cookie); else `sessionService.create` → `setSessionCookie` | **200** |
+| `login.post.ts` | `checkRateLimit` → `authService.login` → if MFA: issue `mfa_preauth` cookie + return `{ mfa_required: true }` (no session, no userId in body); else `sessionService.create` → `setSessionCookie` | **200** |
 | `logout.post.ts` | `sessionService.revoke(cookieToken)` → `clearSessionCookie` | **204 + `return null`** |
 | `me.get.ts` | `requireUser(event)` → `presentAuthUserV1(user)` | 200 / **401** |
 
-**Login MFA branch** — when `user.mfaEnabled`, `authService.login` returns `{ mfaRequired: true, userId }` and the handler returns `{ mfa_required: true, user_id }` with **no session cookie**. The client must then call `/api/v1/auth/mfa/send` and `/api/v1/auth/mfa/verify` to complete login. See the **account-security skill** for the full MFA flow.
+**Login MFA branch** — when `user.mfaEnabled`, `authService.login` returns `{ mfaRequired: true, userId }`. The handler calls `mfaPreAuthService.issueToken(userId)`, sets a short-lived `httpOnly` `mfa_preauth` cookie scoped to `/api/v1/auth/mfa`, and responds `{ mfa_required: true }` — **no session cookie, no userId in the response body**. The client then calls `/api/v1/auth/mfa/send` (no body needed — cookie carries the binding) and `/api/v1/auth/mfa/verify { code }` to complete login. See the **account-security skill** for the full MFA flow.
 
 **Password hashing** — uses **async** `scrypt` via `promisify` (runs on the libuv threadpool, does not block the event loop). `scryptSync` would serialize all concurrent login attempts; never use it here.
 
@@ -181,7 +181,7 @@ Keep the service signature actor-explicit (`create(ownerId, input)`) so the tena
 - [ ] Cookie I/O + `requireUser` only at the edge; session lifecycle in `sessionService`; async hash/verify only in `authService`.
 - [ ] `register` (201) / `login` / `logout` (204 + `return null`) / `me` (401) wired; bodies validated by shared v1 schema; `register` never accepts `role`.
 - [ ] `checkRateLimit` called before scrypt on `register` and `login`.
-- [ ] `login` handles MFA branch: returns `{ mfa_required, user_id }` with no cookie when `user.mfaEnabled`.
+- [ ] `login` MFA branch: issues `mfa_preauth` httpOnly cookie + returns `{ mfa_required: true }` with no session cookie and no `user_id` in the body.
 - [ ] Decoy hash in place for timing equalization on unknown email.
 - [ ] `presentAuthUserV1` hand-lists fields; omits `passwordHash`; includes `email_verified` and `mfa_enabled`.
 - [ ] Login failures are generic 401s (no enumeration, same latency).
