@@ -1,0 +1,397 @@
+# .github/workflows/pr-bot.yml
+#
+# PR Bot — opens (or updates) a pull request whenever a non-main branch is
+# pushed, with a rich description auto-generated from the diff.
+#
+# Setup (one-time):
+#   1. Go to Settings → Actions → General → "Workflow permissions"
+#      → enable "Read and write permissions" + "Allow GitHub Actions to create
+#        and approve pull requests".  (Or use a PAT — see note below.)
+#   2. Optionally add a GH_BOT_TOKEN secret (PAT with `repo` scope) if you
+#      want the PR to appear as a named bot rather than github-actions[bot].
+#      If the secret is absent the workflow falls back to GITHUB_TOKEN.
+#
+# What it does:
+#   • Creates a PR from the pushed branch → main if none exists yet.
+#   • Updates the description if the PR already exists (idempotent push).
+#   • Auto-labels the PR based on which layers were touched (schema, api,
+#     services, repositories, app, tests, ci, docs).
+#   • Fills the description with: summary section, layers-touched table,
+#     the full AGENTS.md definition-of-done checklist, migration notice,
+#     and a reviewer hint for the convention-reviewer agent.
+
+name: PR Bot
+
+on:
+  push:
+    branches-ignore:
+      - main
+
+# Only one run per branch at a time; cancel the previous if a new push lands.
+concurrency:
+  group: pr-bot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  open-or-update-pr:
+    name: Open / update PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so we can diff against main accurately.
+          fetch-depth: 0
+
+      # ── Resolve the token ────────────────────────────────────────────────
+      # Use a PAT stored as GH_BOT_TOKEN when available so the PR shows a
+      # real actor name; fall back to the built-in token otherwise.
+      - name: Resolve token
+        id: token
+        run: |
+          if [ -n "${{ secrets.GH_BOT_TOKEN }}" ]; then
+            echo "value=${{ secrets.GH_BOT_TOKEN }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=${{ secrets.GITHUB_TOKEN }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── Collect diff metadata ────────────────────────────────────────────
+      - name: Analyse diff vs main
+        id: diff
+        run: |
+          BASE=origin/main
+          git fetch origin main --depth=1
+
+          # Files changed
+          CHANGED=$(git diff --name-only "$BASE"...HEAD)
+          echo "$CHANGED" > /tmp/changed_files.txt
+
+          # Counts
+          STATS=$(git diff --shortstat "$BASE"...HEAD)
+          FILES_N=$(echo "$CHANGED" | grep -c . || echo 0)
+
+          # ── Layer flags ──────────────────────────────────────────────────
+          has() { grep -q "$1" /tmp/changed_files.txt; }
+
+          LAYER_SCHEMA=false;    has "server/db/schema"      && LAYER_SCHEMA=true
+          LAYER_REPO=false;      has "server/repositories"   && LAYER_REPO=true
+          LAYER_SERVICE=false;   has "server/services"       && LAYER_SERVICE=true
+          LAYER_API=false;       has "server/api"            && LAYER_API=true
+          LAYER_SHARED=false;    has "shared/"               && LAYER_SHARED=true
+          LAYER_APP=false;       has "^app/"                 && LAYER_APP=true
+          LAYER_TASKS=false;     has "server/tasks"          && LAYER_TASKS=true
+          LAYER_MIDDLEWARE=false; has "server/middleware"    && LAYER_MIDDLEWARE=true
+          LAYER_CI=false;        has ".github/"              && LAYER_CI=true
+          LAYER_DOCS=false;      has "\.md$\|README"         && LAYER_DOCS=true
+          LAYER_TESTS=false;     has "test\|spec\|vitest"    && LAYER_TESTS=true
+          LAYER_MIGRATIONS=false; has "server/db/migrations" && LAYER_MIGRATIONS=true
+
+          # Export everything
+          {
+            echo "stats=$STATS"
+            echo "files_n=$FILES_N"
+            echo "layer_schema=$LAYER_SCHEMA"
+            echo "layer_repo=$LAYER_REPO"
+            echo "layer_service=$LAYER_SERVICE"
+            echo "layer_api=$LAYER_API"
+            echo "layer_shared=$LAYER_SHARED"
+            echo "layer_app=$LAYER_APP"
+            echo "layer_tasks=$LAYER_TASKS"
+            echo "layer_middleware=$LAYER_MIDDLEWARE"
+            echo "layer_ci=$LAYER_CI"
+            echo "layer_docs=$LAYER_DOCS"
+            echo "layer_tests=$LAYER_TESTS"
+            echo "layer_migrations=$LAYER_MIGRATIONS"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Build the PR description ─────────────────────────────────────────
+      - name: Build PR description
+        id: body
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATS: ${{ steps.diff.outputs.stats }}
+          FILES_N: ${{ steps.diff.outputs.files_n }}
+          LAYER_SCHEMA: ${{ steps.diff.outputs.layer_schema }}
+          LAYER_REPO: ${{ steps.diff.outputs.layer_repo }}
+          LAYER_SERVICE: ${{ steps.diff.outputs.layer_service }}
+          LAYER_API: ${{ steps.diff.outputs.layer_api }}
+          LAYER_SHARED: ${{ steps.diff.outputs.layer_shared }}
+          LAYER_APP: ${{ steps.diff.outputs.layer_app }}
+          LAYER_TASKS: ${{ steps.diff.outputs.layer_tasks }}
+          LAYER_MIDDLEWARE: ${{ steps.diff.outputs.layer_middleware }}
+          LAYER_CI: ${{ steps.diff.outputs.layer_ci }}
+          LAYER_DOCS: ${{ steps.diff.outputs.layer_docs }}
+          LAYER_TESTS: ${{ steps.diff.outputs.layer_tests }}
+          LAYER_MIGRATIONS: ${{ steps.diff.outputs.layer_migrations }}
+        run: |
+          # ── Derive a human title from the branch name ────────────────────
+          # feat/add-projects  →  "feat: add projects"
+          # fix/login-cookie   →  "fix: login cookie"
+          # chore/upgrade-deps →  "chore: upgrade deps"
+          BRANCH_TITLE=$(echo "$BRANCH" \
+            | sed 's|.*/||' \
+            | sed 's/-/ /g')
+
+          # ── Layer table ──────────────────────────────────────────────────
+          layer_row() {
+            local name="$1" flag="$2" desc="$3"
+            if [ "$flag" = "true" ]; then
+              echo "| ✅ \`$name\` | $desc |"
+            else
+              echo "| — \`$name\` | $desc |"
+            fi
+          }
+
+          LAYER_TABLE=$(cat <<LAYERS
+          | Layer | Description |
+          |-------|-------------|
+          $(layer_row "schema"      "$LAYER_SCHEMA"     "server/db/schema — table definitions")
+          $(layer_row "migrations"  "$LAYER_MIGRATIONS" "server/db/migrations — generated SQL")
+          $(layer_row "repository"  "$LAYER_REPO"       "server/repositories — Drizzle queries")
+          $(layer_row "service"     "$LAYER_SERVICE"    "server/services — business rules")
+          $(layer_row "api"         "$LAYER_API"        "server/api — route handlers")
+          $(layer_row "shared"      "$LAYER_SHARED"     "shared/schemas — Zod DTOs")
+          $(layer_row "app"         "$LAYER_APP"        "app/ — Nuxt client / pages / components")
+          $(layer_row "tasks"       "$LAYER_TASKS"      "server/tasks — scheduled maintenance")
+          $(layer_row "middleware"  "$LAYER_MIDDLEWARE"  "server/middleware — Nitro middleware")
+          $(layer_row "ci"          "$LAYER_CI"         ".github/ — workflows / scripts")
+          $(layer_row "tests"       "$LAYER_TESTS"      "test/ — vitest specs")
+          $(layer_row "docs"        "$LAYER_DOCS"       "*.md — documentation")
+          LAYERS
+          )
+
+          # ── Migration warning ────────────────────────────────────────────
+          if [ "$LAYER_SCHEMA" = "true" ] || [ "$LAYER_MIGRATIONS" = "true" ]; then
+            MIGRATION_NOTICE="> [!WARNING]
+          > **Schema change detected.**
+          > - Run \`npm run db:generate\` locally and commit the migration file.
+          > - Dev server auto-applies; production needs \`npm run db:migrate\` on deploy.
+          > - Check the generated SQL before merging — irreversible changes (DROP COLUMN, DROP TABLE) need extra care."
+          else
+            MIGRATION_NOTICE="> No schema changes detected — no migration needed."
+          fi
+
+          # ── Tasks warning ────────────────────────────────────────────────
+          if [ "$LAYER_TASKS" = "true" ]; then
+            TASKS_NOTICE="> [!NOTE]
+          > **Scheduled task changed.** Tasks under \`server/tasks/\` are the only permitted direct \`@nuxthub/db\` importers outside repositories. Confirm the new/changed task does not bleed into services or handlers."
+          else
+            TASKS_NOTICE=""
+          fi
+
+          # ── AGENTS.md definition-of-done checklist ───────────────────────
+          # Only show the schema/data-layer checks when schema was touched.
+          if [ "$LAYER_SCHEMA" = "true" ] || [ "$LAYER_REPO" = "true" ]; then
+            SCHEMA_CHECKLIST="- [ ] Table re-exported from \`server/db/schema.ts\` barrel
+          - [ ] Migration generated (\`npm run db:generate\`) and committed
+          - [ ] Repository is the only new file importing \`@nuxthub/db\`
+          - [ ] Always-one-row ops use \`return row!\`; maybe-missing ops keep \`| undefined\`"
+          else
+            SCHEMA_CHECKLIST=""
+          fi
+
+          if [ "$LAYER_SERVICE" = "true" ]; then
+            SERVICE_CHECKLIST="- [ ] Service has zero HTTP references (\`event\`, \`readBody\`, status codes)
+          - [ ] Service throws \`notFound\`/\`conflict\` from \`server/utils/errors.ts\`"
+          else
+            SERVICE_CHECKLIST=""
+          fi
+
+          if [ "$LAYER_API" = "true" ]; then
+            API_CHECKLIST="- [ ] Handlers are thin: validate → service → present (~10 lines)
+          - [ ] PATCH schemas use \`.partial().strict().refine(...)\`
+          - [ ] Presenters hand-list fields; no secret columns exposed
+          - [ ] \`role\` not accepted in public create/update body
+          - [ ] \`create\` returns 201; \`delete\` returns 204 + \`return null\`
+          - [ ] No 405 branch written (Nitro handles it)"
+          else
+            API_CHECKLIST=""
+          fi
+
+          GENERAL_CHECKLIST="- [ ] \`npx nuxt typecheck\` passes
+          - [ ] \`npm run build\` passes
+          - [ ] Convention checks pass (\`bash scripts/check-conventions.sh\`)"
+
+          # ── Reviewer hint ────────────────────────────────────────────────
+          REVIEWER_HINT="<details>
+          <summary>🤖 Convention-reviewer prompt (copy → paste into Claude Project)</summary>
+
+          \`\`\`
+          Review the changeset on branch \`$BRANCH\` against the project hard rules.
+          Run the convention-reviewer agent: .claude/agents/convention-reviewer.md
+          Focus on: layer discipline, HTTP primitives in services, PATCH schema safety,
+          role exposure in public schemas, and migration drift.
+          \`\`\`
+
+          </details>"
+
+          # ── Assemble the full body ────────────────────────────────────────
+          BODY=$(cat <<EOF
+          <!-- PR auto-generated by pr-bot.yml — edit freely, bot will not overwrite a PR you've manually updated -->
+
+          ## 📋 Summary
+
+          > _Auto-generated from branch \`$BRANCH\`. Replace this line with a one-sentence description of what this PR does and why._
+
+          **Branch:** \`$BRANCH\`
+          **Commit:** \`${SHA:0:8}\`
+          **Author:** @$ACTOR
+          **Diff:** $STATS
+
+          ---
+
+          ## 🏗️ Layers touched
+
+          $LAYER_TABLE
+
+          ---
+
+          ## ⚠️ Migration
+
+          $MIGRATION_NOTICE
+
+          $TASKS_NOTICE
+
+          ---
+
+          ## ✅ Definition of done
+
+          $SCHEMA_CHECKLIST
+          $SERVICE_CHECKLIST
+          $API_CHECKLIST
+          $GENERAL_CHECKLIST
+          - [ ] No regressions in existing endpoints (manual smoke-test or vitest)
+          - [ ] PR description updated with a real summary (replace the placeholder above)
+
+          ---
+
+          ## 🔍 Review
+
+          $REVIEWER_HINT
+
+          ---
+
+          <sub>Generated by <a href="$RUN_URL">pr-bot.yml run #${{ github.run_number }}</a> · Push a new commit to refresh this description.</sub>
+          EOF
+          )
+
+          # GitHub Actions multiline output
+          {
+            echo "body<<PR_BODY_EOF"
+            echo "$BODY"
+            echo "PR_BODY_EOF"
+            echo "title=$BRANCH_TITLE"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Determine labels to apply ────────────────────────────────────────
+      - name: Resolve labels
+        id: labels
+        run: |
+          LABELS=""
+          add() { LABELS="${LABELS:+$LABELS,$1}$1"; }
+
+          [ "${{ steps.diff.outputs.layer_schema }}" = "true" ]     && add "database"
+          [ "${{ steps.diff.outputs.layer_migrations }}" = "true" ]  && add "database"
+          [ "${{ steps.diff.outputs.layer_repo }}" = "true" ]        && add "database"
+          [ "${{ steps.diff.outputs.layer_service }}" = "true" ]     && add "backend"
+          [ "${{ steps.diff.outputs.layer_api }}" = "true" ]         && add "api"
+          [ "${{ steps.diff.outputs.layer_shared }}" = "true" ]      && add "api"
+          [ "${{ steps.diff.outputs.layer_app }}" = "true" ]         && add "frontend"
+          [ "${{ steps.diff.outputs.layer_ci }}" = "true" ]          && add "ci"
+          [ "${{ steps.diff.outputs.layer_docs }}" = "true" ]        && add "docs"
+          [ "${{ steps.diff.outputs.layer_tests }}" = "true" ]       && add "tests"
+
+          # Deduplicate (bash-only, no sort -u needed for short lists)
+          LABELS=$(echo "$LABELS" | tr ',' '\n' | awk '!seen[$0]++' | paste -sd,)
+          echo "value=$LABELS" >> "$GITHUB_OUTPUT"
+
+      # ── Ensure labels exist in the repo ─────────────────────────────────
+      # gh label create is idempotent with --force so re-runs are safe.
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.value }}
+        run: |
+          declare -A LABEL_COLORS=(
+            ["database"]="0075ca"
+            ["backend"]="e4e669"
+            ["api"]="d876e3"
+            ["frontend"]="bfd4f2"
+            ["ci"]="f9d0c4"
+            ["docs"]="0052cc"
+            ["tests"]="c2e0c6"
+          )
+          for label in "${!LABEL_COLORS[@]}"; do
+            gh label create "$label" \
+              --color "${LABEL_COLORS[$label]}" \
+              --description "Auto-label from pr-bot" \
+              --force \
+              --repo "${{ github.repository }}" 2>/dev/null || true
+          done
+
+      # ── Open or update the PR ────────────────────────────────────────────
+      - name: Open or update PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.value }}
+          BODY: ${{ steps.body.outputs.body }}
+          TITLE: ${{ steps.body.outputs.title }}
+          LABELS: ${{ steps.labels.outputs.value }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          # Check whether a PR already exists for this branch.
+          EXISTING=$(gh pr list \
+            --head "$BRANCH" \
+            --base main \
+            --state open \
+            --json number \
+            --jq '.[0].number' \
+            --repo "${{ github.repository }}" 2>/dev/null || echo "")
+
+          if [ -z "$EXISTING" ] || [ "$EXISTING" = "null" ]; then
+            # Create a new PR.
+            PR_URL=$(gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --repo "${{ github.repository }}")
+            echo "Created PR: $PR_URL"
+            PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          else
+            # Update the existing PR description.
+            gh pr edit "$EXISTING" \
+              --body "$BODY" \
+              --repo "${{ github.repository }}"
+            echo "Updated PR #$EXISTING"
+            PR_NUMBER="$EXISTING"
+          fi
+
+          # Apply labels (best-effort — missing labels won't fail the job).
+          if [ -n "$LABELS" ]; then
+            gh pr edit "$PR_NUMBER" \
+              --add-label "$LABELS" \
+              --repo "${{ github.repository }}" 2>/dev/null || true
+          fi
+
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      # ── Post a summary to the Actions run page ───────────────────────────
+      - name: Job summary
+        if: always()
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          echo "## PR Bot 🤖" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$PR_NUMBER" ]; then
+            echo "✅ PR [#$PR_NUMBER](https://github.com/${{ github.repository }}/pull/$PR_NUMBER) is open for branch \`$BRANCH\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "⚠️ Could not open or find a PR for branch \`$BRANCH\`." >> "$GITHUB_STEP_SUMMARY"
+          fi
