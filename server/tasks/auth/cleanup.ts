@@ -1,3 +1,4 @@
+// server/tasks/auth/cleanup.ts
 import { db, schema } from '@nuxthub/db'
 import { lt, and, isNull, or } from 'drizzle-orm'
 
@@ -13,17 +14,18 @@ import { lt, and, isNull, or } from 'drizzle-orm'
 // Ad-hoc in dev:  npx nuxt task run auth:cleanup
 //
 // This task cleans up:
-//  1. Expired sessions         (expires_at < now)
+//  1. Expired sessions
 //  2. Expired password-reset tokens
 //  3. Expired email-verification tokens
 //  4. Expired MFA OTP codes
-//  5. Stale rate-limit buckets (window closed AND not currently locked)
+//  5. Expired MFA pre-auth tokens (short-lived cookie-binding rows)
+//  6. Stale rate-limit buckets (window closed AND not currently locked)
 //
 // ⚠ ARCHITECTURAL EXCEPTION: This file imports @nuxthub/db directly, which
 // violates the "only repositories import @nuxthub/db" rule in AGENTS.md.
 // This is an ACCEPTED ONE-OFF exception because scheduled cleanup tasks are
 // maintenance-only, never called from routes/services, and bulk-deleting
-// expired rows across five tables doesn't warrant five repository methods
+// expired rows across six tables doesn't warrant six repository methods
 // that exist solely for this task.
 //
 // DO NOT use this as precedent. Route handlers and services MUST go through
@@ -44,7 +46,7 @@ export default defineTask({
   async run() {
     const now = new Date()
 
-    const [sessions, resetTokens, verifyTokens, mfaCodes, rateLimitRows] =
+    const [sessions, resetTokens, verifyTokens, mfaCodes, mfaPreAuthTokens, rateLimitRows] =
       await Promise.all([
         db
           .delete(schema.sessions)
@@ -65,6 +67,13 @@ export default defineTask({
           .delete(schema.mfaCodes)
           .where(lt(schema.mfaCodes.expiresAt, now))
           .returning({ id: schema.mfaCodes.id }),
+
+        // MFA pre-auth tokens — 10-minute TTL; expired rows mean the login
+        // flow was abandoned or the OTP was already consumed.
+        db
+          .delete(schema.mfaPreAuthTokens)
+          .where(lt(schema.mfaPreAuthTokens.expiresAt, now))
+          .returning({ id: schema.mfaPreAuthTokens.id }),
 
         // Rate-limit rows: delete only when the window is closed AND the bucket
         // is not currently locked (blockedUntil is null or in the past).
@@ -92,6 +101,7 @@ export default defineTask({
       resetTokens: resetTokens.length,
       verifyTokens: verifyTokens.length,
       mfaCodes: mfaCodes.length,
+      mfaPreAuthTokens: mfaPreAuthTokens.length,
       rateLimitRows: rateLimitRows.length,
     }
     console.info('[auth:cleanup]', result)

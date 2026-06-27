@@ -11,7 +11,9 @@
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "db:generate": "nuxt db generate",
-    "db:migrate": "nuxt db migrate"
+    "db:migrate": "nuxt db migrate",
+    "gen:rate-limits": "node scripts/gen-rate-limits.mjs",
+    "conventions": "bash scripts/check-conventions.sh"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.3",

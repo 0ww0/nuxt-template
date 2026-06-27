@@ -347,7 +347,7 @@ jobs:
           LABELS: ${{ steps.labels.outputs.value }}
           BRANCH: ${{ github.ref_name }}
         run: |
-          # Check whether a PR already exists for this branch.
+          # Check for an open PR first.
           EXISTING=$(gh pr list \
             --head "$BRANCH" \
             --base main \
@@ -356,8 +356,42 @@ jobs:
             --jq '.[0].number' \
             --repo "${{ github.repository }}" 2>/dev/null || echo "")
 
+          # If no open PR, check for a closed one on the same branch.
+          # GitHub blocks creating a new PR when a closed one already exists
+          # for the same head->base pair — reopen it instead.
+          CLOSED=""
           if [ -z "$EXISTING" ] || [ "$EXISTING" = "null" ]; then
-            # Create a new PR.
+            CLOSED=$(gh pr list \
+              --head "$BRANCH" \
+              --base main \
+              --state closed \
+              --json number \
+              --jq '.[0].number' \
+              --repo "${{ github.repository }}" 2>/dev/null || echo "")
+          fi
+
+          if [ -n "$EXISTING" ] && [ "$EXISTING" != "null" ]; then
+            # Update the existing open PR.
+            gh pr edit "$EXISTING" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --repo "${{ github.repository }}"
+            echo "Updated open PR #$EXISTING"
+            PR_NUMBER="$EXISTING"
+
+          elif [ -n "$CLOSED" ] && [ "$CLOSED" != "null" ]; then
+            # Reopen the closed PR and refresh its description.
+            gh pr reopen "$CLOSED" \
+              --repo "${{ github.repository }}"
+            gh pr edit "$CLOSED" \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --repo "${{ github.repository }}"
+            echo "Reopened closed PR #$CLOSED"
+            PR_NUMBER="$CLOSED"
+
+          else
+            # No existing PR at all — create a fresh one.
             PR_URL=$(gh pr create \
               --base main \
               --head "$BRANCH" \
@@ -366,13 +400,6 @@ jobs:
               --repo "${{ github.repository }}")
             echo "Created PR: $PR_URL"
             PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
-          else
-            # Update the existing PR description.
-            gh pr edit "$EXISTING" \
-              --body "$BODY" \
-              --repo "${{ github.repository }}"
-            echo "Updated PR #$EXISTING"
-            PR_NUMBER="$EXISTING"
           fi
 
           # Apply labels (best-effort — missing labels won't fail the job).

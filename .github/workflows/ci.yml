@@ -151,7 +151,7 @@ jobs:
       #    and users/index.post — all of which are correctly protected.
       #
       #    Exclusions (no checkRateLimit needed — protected by other means):
-      #      server/api/dev/*             — dev-only seeders, never rate-limited
+      #      server/api/dev/ no longer exists — seeding moved to server/tasks/db/seed.ts
       #      server/api/*/mfa/enable.ts   — step-up auth via requireUser; no OTP
       #      server/api/*/mfa/disable.ts  — step-up auth via requireUser; no OTP
       #      server/api/*/users/index.post.ts — requireMinRole('admin') gate
@@ -161,7 +161,6 @@ jobs:
           WARNED=0
           for file in $(grep -rl "sendMail\|mfaService\.send\|mfaService\.verify" \
             server/api/ --include="*.ts" 2>/dev/null \
-            | grep -v "/dev/" \
             | grep -v "mfa/enable" \
             | grep -v "mfa/disable" \
             | grep -v "users/index\.post"); do
@@ -271,3 +270,27 @@ jobs:
           echo "✓ Migration files are up to date"
         env:
           DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+      # ──────────────────────────────────────────────
+      # 10. .env.example drift — advisory
+      #
+      #    When a new NUXT_* env var is added to nuxt.config.ts or a plugin,
+      #    .env.example should be updated. A developer who copies .env.example
+      #    on a fresh clone will miss new required vars and hit runtime errors.
+      #
+      #    Non-blocking: some vars are provider-specific or optional. The
+      #    warning prompts a manual check; it does not fail the build.
+      # ──────────────────────────────────────────────
+      - name: Check .env.example covers referenced env vars
+        run: |
+          MISSED=0
+          for var in $(grep -ohE 'NUXT_[A-Z_]+|DATABASE_URL' \
+            nuxt.config.ts server/plugins/*.ts 2>/dev/null | sort -u); do
+            if ! grep -q "^${var}" .env.example 2>/dev/null; then
+              echo "WARN: $var is referenced in config/plugins but missing from .env.example"
+              MISSED=1
+            fi
+          done
+          if [ "$MISSED" -eq 0 ]; then
+            echo "✓ .env.example covers all referenced env vars"
+          fi
+          # Advisory only — not exit 1. Some vars are optional or provider-specific.

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Convention & security guardrails for the Nuxt 4 + NuxtHub template.
-# Encodes the MITIGATION_PLAN.md checks as runnable gates.
+# Encodes the hard rules as runnable gates.
 #
 #   Local:  bash scripts/check-conventions.sh
 #   CI:     see .github/workflows/ci.yml
@@ -24,11 +24,15 @@ indent() { sed 's/^/         /'; }
 
 # ── 1. @nuxthub/db only in repositories/ and tasks/ ──────────────────────────
 # (tasks/ is the documented maintenance-only exception; everything else must go
-#  through the repository layer.) NOTE: real grep flag is --exclude-dir, not the
-#  --exclude-path the plan drafted (which errors out).
+#  through the repository layer.)
+#
+# Issue 5 fix: replaced GNU-only --exclude-dir with a portable grep -v pipeline
+# so this works identically on macOS BSD grep and Linux.
 section "@nuxthub/db imported only in repositories/ and tasks/"
-violations=$(grep -rl "from '@nuxthub/db'" server --include='*.ts' \
-  --exclude-dir=repositories --exclude-dir=tasks 2>/dev/null || true)
+violations=$(grep -rl "from '@nuxthub/db'" server --include='*.ts' 2>/dev/null \
+  | grep -v "repositories/" \
+  | grep -v "tasks/" \
+  || true)
 if [ -n "$violations" ]; then
   err "@nuxthub/db imported outside repositories/ and tasks/:"
   printf '%s\n' "$violations" | indent
@@ -125,13 +129,34 @@ if [ -n "$spreads" ]; then
 fi
 
 # ── 8. Sensitive handlers call checkRateLimit (advisory) ─────────────────────
+# Issue 10 fix: removed `authService` and `scryptAsync` from the grep pattern.
+#   - `authService` matched too broadly: admin handlers legitimately call
+#     authService.register() and are protected by requireMinRole, not
+#     checkRateLimit. This produced false positives that trained developers
+#     to ignore the warning section entirely.
+#   - `scryptAsync` matched handlers that call authService.login() transitively
+#     through the service layer (mfa/enable, mfa/disable, users/index.post).
+#     Those handlers ARE correctly protected — by requireUser or requireMinRole.
+#
+# The remaining pattern targets only direct signals in handler files:
+#   sendMail      — email sending (password reset, OTP, verification)
+#   mfaService    — OTP send or verify
+#
+# Exclusions (protected by requireUser / requireMinRole rather than checkRateLimit):
+#   users/index.post — requireMinRole('admin') gate
+#   mfa/enable       — step-up auth via requireUser; no OTP dispatch
+#   mfa/disable      — step-up auth via requireUser; no OTP dispatch
 section "sensitive handlers call checkRateLimit"
 while IFS= read -r f; do
   [ -z "$f" ] && continue
   if ! grep -q 'checkRateLimit' "$f"; then
-    note "$f references auth/mfa/mail/crypto but has no checkRateLimit — verify"
+    note "$f references sendMail/mfaService but has no checkRateLimit — verify"
   fi
-done < <(grep -rlE 'sendMail|scryptAsync|authService|mfaService' server/api --include='*.ts' 2>/dev/null || true)
+done < <(grep -rlE 'sendMail|mfaService' server/api --include='*.ts' 2>/dev/null \
+  | grep -v "users/index\.post" \
+  | grep -v "mfa/enable" \
+  | grep -v "mfa/disable" \
+  || true)
 
 # ── Result ───────────────────────────────────────────────────────────────────
 echo
