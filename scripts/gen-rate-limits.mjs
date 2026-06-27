@@ -17,8 +17,9 @@
 
 import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'   // add this line
 
-const ROOT = new URL('..', import.meta.url).pathname
+const ROOT = fileURLToPath(new URL('..', import.meta.url))   // change this line
 const API_DIR = join(ROOT, 'server/api')
 const OUT_FILE = join(ROOT, 'RATE_LIMITS.md')
 
@@ -46,16 +47,26 @@ async function collectTs(dir) {
  *   server/api/v1/auth/mfa/send.post.ts →  POST /api/v1/auth/mfa/send
  */
 function fileToEndpoint(filePath) {
-  const rel = relative(join(ROOT, 'server'), filePath) // e.g. api/v1/auth/login.post.ts
-  const parts = rel.replace(/\.ts$/, '').split('/')     // ['api','v1','auth','login.post']
-  const last = parts[parts.length - 1]                  // 'login.post'
+  // Normalise to forward slashes before any string operations.
+  // path.relative() uses OS separators (backslash on Windows), which breaks
+  // the split('/') and prefix logic below.
+  const rel = relative(join(ROOT, 'server'), filePath).replace(/\\/g, '/')
+  // e.g. "api/v1/auth/login.post.ts"
 
+  const parts = rel.replace(/\.ts$/, '').split('/')
+  // e.g. ['api', 'v1', 'auth', 'login.post']
+
+  const last = parts[parts.length - 1]
   const methodMatch = last.match(/^(.+)\.(get|post|put|patch|delete)$/)
   if (!methodMatch) return null
 
   const method = methodMatch[2].toUpperCase()
   const base = methodMatch[1] === 'index' ? '' : `/${methodMatch[1]}`
-  const prefix = '/' + parts.slice(0, -1).join('/') // '/api/v1/auth'
+  // Fix: slice(0, -1) then join with '/' and prepend a single slash.
+  // Previously '/' + parts.slice(0, -1).join('/') produced '//api/...'
+  // when parts[0] was already 'api' (no leading empty string).
+  const prefix = '/' + parts.slice(0, -1).join('/')
+  // e.g. '/api/v1/auth'
 
   return `${method} ${prefix}${base}`
 }

@@ -28,11 +28,4 @@ export const mfaPreAuthTokenRepository = {
       .delete(schema.mfaPreAuthTokens)
       .where(eq(schema.mfaPreAuthTokens.userId, userId))
   },
-
-  // Burn a single token by its hash (used on verify success).
-  async deleteByHash(tokenHash: string) {
-    await db
-      .delete(schema.mfaPreAuthTokens)
-      .where(eq(schema.mfaPreAuthTokens.tokenHash, tokenHash))
-  },
 }
