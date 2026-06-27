@@ -236,6 +236,10 @@ jobs:
       #
       #    Fix: run 'node scripts/gen-rate-limits.mjs' locally and commit
       #    the updated RATE_LIMITS.md alongside the handler change.
+      #
+      #    Windows note: the script uses fileURLToPath() for ROOT resolution
+      #    and normalises path separators to forward slashes — safe on both
+      #    Windows (local dev) and Linux (CI). See scripts/gen-rate-limits.mjs.
       # ──────────────────────────────────────────────
       - name: Check RATE_LIMITS.md is up to date
         run: |

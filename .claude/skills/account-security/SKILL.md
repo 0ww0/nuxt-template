@@ -23,12 +23,13 @@ is **never stored in raw form** — only its SHA-256 hash.
 5. **Single-use + newest-only.** Delete the row(s) on success; delete prior rows when re-issuing.
 
 ```
-schema   server/db/schema/{passwordResetToken,emailVerificationToken,mfaCode}.ts
+schema   server/db/schema/{passwordResetToken,emailVerificationToken,mfaCode,mfaPreAuthToken}.ts
          + users.{emailVerifiedAt, mfaEnabled}
 repo     server/repositories/*.repository.ts
          create / findUsableByHash / deleteByUserId (+ mfaCode.incrementAttempts)
 service  server/services/auth.service.ts (reset, verify)
          server/services/mfa.service.ts (OTP)
+         server/services/mfaPreAuth.service.ts (pre-auth cookie binding)
 handler  server/api/v1/auth/*  →  validate → checkRateLimit → service → status/present
 util     server/utils/mailer.ts  →  sendMail({ to, subject, text })
 ```
@@ -41,9 +42,10 @@ util     server/utils/mailer.ts  →  sendMail({ to, subject, text })
    - `password_reset_tokens` (`tokenHash`)
    - `email_verification_tokens` (`tokenHash`)
    - `mfa_codes` (`codeHash`, plus `attempts smallint default 0`)
+   - `mfa_preauth_tokens` (`tokenHash`) — 10-min TTL; binds the MFA send/verify flow to a server-confirmed password check
 2. **User columns**: `emailVerifiedAt` (nullable timestamp — null = unverified) and `mfaEnabled` (boolean). Run `npm run db:generate`.
 3. **Mailer seam** (`server/utils/mailer.ts`) and `runtimeConfig.public.appUrl` for building links (see §5).
-4. **Cleanup task** — `server/tasks/auth/cleanup.ts` prunes all three tables hourly; nothing extra to add per flow.
+4. **Cleanup task** — `server/tasks/auth/cleanup.ts` prunes all four token tables hourly; nothing extra to add per flow.
 5. **Rate-limit actions** — every send/verify endpoint calls `checkRateLimit` (see rate-limit skill); pick an `action` name per endpoint.
 
 ---
@@ -87,22 +89,61 @@ Two endpoints, 1-hour TTL.
 
 ---
 
-## §4 MFA — email OTP (`mfa.service.ts`)
+## §4 MFA — email OTP (`mfa.service.ts` + `mfaPreAuth.service.ts`)
 
 A 6-digit CSPRNG code (`randomInt(100_000, 1_000_000)`), 10-minute TTL, **5-attempt** cap. The session is issued **only after both factors succeed**.
 
-**Login flow when `mfaEnabled`:**
+### Login flow when `mfaEnabled` (pre-auth cookie)
 
-1. `POST /auth/login` → password verified → `authService.login()` returns `{ mfaRequired: true, userId }` and **no session cookie**. The handler responds `{ mfa_required: true, user_id }`.
-2. `POST /auth/mfa/send { userId }` → rate-limited (3/10 min, 30-min lockout). The handler is **anti-enumeration**: if the user doesn't exist or doesn't have MFA enabled, it silently no-ops and returns the **same generic response** (`"If a code is required, it has been sent."`). A mail failure inside `mfaService.sendCode` is also silently swallowed for the same reason — a 500 would leak MFA status.
-3. `POST /auth/mfa/verify { userId, code }` → rate-limited (10/10 min, 30-min lockout per user). `findUsableByHash` → confirm `record.userId === userId` → **atomic `incrementAttempts`** → if `attempts > 5` burn + 401 → else burn and `sessionService.create`. Handler sets the cookie and returns `presentAuthUserV1(user)`.
+The MFA send/verify flow is bound to a server-confirmed password check via a
+short-lived `httpOnly` pre-auth cookie. Neither `/mfa/send` nor `/mfa/verify`
+accepts a `userId` in the request body — the cookie carries the binding.
 
-**Enable / disable** (`/auth/mfa/enable`, `/auth/mfa/disable`) require **step-up auth**: `requireUser` + re-confirm the current password via `authService.login` before toggling. `disable` also burns any outstanding codes.
+1. `POST /auth/login` → password verified → `authService.login()` returns
+   `{ mfaRequired: true, userId }`. The handler calls
+   `mfaPreAuthService.issueToken(userId)`, sets an `httpOnly` `mfa_preauth` cookie
+   scoped to `/api/v1/auth/mfa` (10-min TTL), and responds `{ mfa_required: true }`.
+   **No session cookie, no userId in the body.**
 
-**Anti-enumeration rules for MFA:**
+2. `POST /auth/mfa/send` → **no body**. Handler reads `userId` from the pre-auth
+   cookie via `mfaPreAuthService.validateToken(rawToken)` (does NOT burn the token —
+   send may be retried). Rate-limited (3/10 min per user + per IP). **Anti-enumeration**:
+   generic 200 always, regardless of whether the account exists or has MFA enabled.
+   Mail errors inside `mfaService.sendCode` are silently swallowed for the same reason.
+
+3. `POST /auth/mfa/verify { code }` → **body contains only the OTP code**.
+   Handler calls `mfaPreAuthService.validateToken` (does NOT burn on entry — a wrong
+   OTP should not force a full re-login). Then `checkRateLimit`, then `readValidatedBody`,
+   then `mfaService.verifyCode(userId, code)`:
+   - `findUsableByHash` → confirm `record.userId === userId`
+   - **atomic `incrementAttempts`** → if `attempts > 5` burn OTP + 401
+   - else burn OTP and `sessionService.create`
+
+   On success: `mfaPreAuthService.consumeToken(rawToken)` burns the pre-auth token,
+   `mfa_preauth` cookie is cleared, session cookie is set, `presentAuthUserV1(user)` returned.
+   On any failure (wrong code, expired OTP): 401, pre-auth cookie stays alive so the
+   user can correct their code and retry without re-entering their password.
+
+### Why validate-then-burn-on-success (not consume-on-entry)
+
+The OTP itself is the brute-force gate: `incrementAttempts` enforces a 5-attempt cap
+atomically, and the `mfa-verify` rate-limit bucket (10/10 min per user) adds a second
+layer. Burning the pre-auth token on a wrong OTP is unnecessary defence-in-depth that
+forces a full re-login for a simple typo. Burning only on success preserves the security
+model while keeping the UX reasonable.
+
+### Enable / disable
+
+`/auth/mfa/enable` and `/auth/mfa/disable` require **step-up auth**: `requireUser` +
+re-confirm the current password via `authService.login` before toggling. `disable` also
+burns any outstanding OTP codes.
+
+### Anti-enumeration rules for MFA
+
 - `/mfa/send` always returns a generic 200 regardless of whether the user exists or has MFA enabled.
 - Mail errors in `sendCode` are caught and logged; not re-thrown (same reasoning).
-- `/mfa/verify` returns a generic 401 on any failure — never distinguishes "wrong code" from "no such user".
+- `/mfa/verify` returns a generic 401 on any failure — never distinguishes wrong code from expired session.
+- The pre-auth cookie's 401 on missing/expired is also generic — doesn't reveal whether the session expired or never existed.
 
 ---
 
@@ -126,6 +167,7 @@ Wire SMTP (nodemailer) or an HTTP provider (Resend/Postmark/SES) in the prod bra
 - **Step-up for MFA toggles** — re-confirm password before enable/disable.
 - **Rate-limit every send and verify** endpoint.
 - **Fail loud on missing mail transport** in production.
+- **Pre-auth cookie is httpOnly + scoped.** `path: '/api/v1/auth/mfa'` — never sent to other routes. Burn on verify success, not on wrong OTP.
 
 ---
 
@@ -136,6 +178,7 @@ Wire SMTP (nodemailer) or an HTTP provider (Resend/Postmark/SES) in the prod bra
 - Narrow the login result: `if ('mfaRequired' in result)` — don't index a union member that may not be there.
 - **Step-up reuses `login()` only for its throw-on-bad-password side effect**; the return value is intentionally ignored on `disable` (where `mfaEnabled` is still true, so `login` returns `{ mfaRequired }` — that's fine).
 - `appUrl` must be set in `runtimeConfig.public` or links point nowhere.
+- `mfaPreAuthService.validateToken` does NOT burn the token; `consumeToken` does. Use `validateToken` on entry to `/mfa/verify` so a wrong OTP doesn't force a full re-login.
 
 ---
 
@@ -146,13 +189,14 @@ Mirror the primitive exactly: new `*_tokens` table (hash `unique`, `userId` FK c
 Examples fitting this pattern: "email change confirmation", "passwordless magic-link login".
 
 ## §9 Definition of done
-- [ ] Three tables (hash `unique`, FK cascade, `expiresAt`) + `users.emailVerifiedAt` + `users.mfaEnabled`; all in the cleanup task.
+- [ ] Four token tables (`passwordResetTokens`, `emailVerificationTokens`, `mfaCodes`, `mfaPreAuthTokens`) + `users.emailVerifiedAt` + `users.mfaEnabled`; all in the cleanup task.
 - [ ] Only the SHA-256 hash stored; raw secret emailed once; `sha256()` (not scrypt) for tokens/OTPs.
 - [ ] `findUsableByHash` checks hash **and** expiry; single-use burn on success; newest-only burn on re-issue.
 - [ ] Forgot-password is a silent no-op + generic 200; mail errors silently swallowed to preserve response identity.
 - [ ] Resend no-ops when already verified.
 - [ ] Reset revokes all sessions.
-- [ ] `/mfa/send` is fully anti-enumeration: generic response for missing users, disabled MFA, and mail errors.
+- [ ] `/mfa/send` is fully anti-enumeration: generic response for missing users, disabled MFA, and mail errors. No body — userId from pre-auth cookie only.
+- [ ] `/mfa/verify` body contains only `{ code }`. userId from pre-auth cookie via `validateToken` (not `consumeToken`) on entry; `consumeToken` called only on success.
 - [ ] MFA: OTP attempt cap (5) + atomic increment; session issued only after both factors; enable/disable behind step-up.
 - [ ] Every send/verify endpoint is rate-limited.
 - [ ] Mailer fails loud in prod; dev uses Mailpit with console fallback.
