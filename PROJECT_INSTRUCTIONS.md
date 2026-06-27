@@ -51,10 +51,11 @@ Hard rules:
 - **database skill** (`.claude/skills/database/SKILL.md`) — schema/column
   changes, migrations, seeding, the Drizzle query cookbook, local Postgres ops,
   troubleshooting.
-- **auth skill** (`.claude/skills/auth/SKILL.md`) — DB-backed sessions, scrypt
+- **auth skill** (`.claude/skills/auth/SKILL.md`) — DB-backed sessions, async scrypt
   password hashing, login/register/logout/me endpoints, `requireUser`, session
-  revocation, and the `useAuth()` composable. Use for anything involving identity
-  or session logic.
+  revocation, and the `useAuth()` composable. MFA login issues an `mfa_preauth`
+  httpOnly cookie — `/mfa/send` has no body, `/mfa/verify` takes `{ code }` only.
+  Use for anything involving identity or session logic.
 - **rbac skill** (`.claude/skills/rbac/SKILL.md`) — roles, the privilege ladder,
   and gating handlers by role. `requireMinRole` (hierarchical) / `requireRole`
   (exact) / `requireVerifiedUser` (login + email verified) at the edge;

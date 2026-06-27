@@ -21,15 +21,16 @@ revoke) invalidates the session instantly — the concrete win over stateless to
 | Piece | Touches `event`? | Lives in |
 |---|---|---|
 | `setSessionCookie`, `clearSessionCookie`, `getCurrentUser`, `requireUser` | **yes** (cookie I/O) | **route handler / edge** (`server/utils/auth.ts`) |
-| `sessionService.create` / `resolve` / `revoke` / `revokeAllForUser` (token gen, TTL policy) | no | **service** (`session.service.ts`) |
+| `sessionService.create` / `resolve` / `revoke` / `revokeAllForUser` | no | **service** (`session.service.ts`) |
 | `hashPassword` / `verifyPassword` (async scrypt; module-private) | no (pure crypto) | **service** (`auth.service.ts`) |
-| `findByToken`, `findByEmail`, user/session inserts | n/a (queries) | **repository** |
+| `mfaPreAuthService.issueToken` / `validateToken` / `consumeToken` | no | **service** (`mfaPreAuth.service.ts`) |
+| `findByTokenWithUser`, `findByEmail`, user/session inserts | n/a (queries) | **repository** |
 
 Layered flow for "log in":
 ```
 handler   → validate → checkRateLimit → authService.login → sessionService.create → setSessionCookie
 service   → verifyPassword (async scrypt), decoy hash for timing equalization; throws unauthorized/conflict
-repository→ findByEmail, insert session  (the only layer importing @nuxthub/db)
+repository→ findByEmail, findByTokenWithUser (join), insert session  (the only layer importing @nuxthub/db)
 ```
 
 `requireUser(event)` throws **401 automatically** when there's no/expired session.
@@ -49,7 +50,7 @@ No auth module to install — sessions are plain DB rows, hashing uses `node:cry
 - `emailVerifiedAt` — nullable `timestamp` (null = unverified; set by email-verify flow)
 - `mfaEnabled` — `boolean` notNull default `false` (toggled by MFA enable/disable)
 
-**`sessions` table** — `token` (unique), `userId` (FK → `users.id`, `onDelete: 'cascade'`), `expiresAt`, `createdAt`.
+**`sessions` table** — `token` (unique), `userId` (FK → `users.id`, `onDelete: 'cascade'`), `expiresAt`, `createdAt`, plus a `sessions_user_id_idx` index on `userId` (Postgres doesn't auto-index FKs; without this `revokeAllForUser` and the user-delete cascade do full table scans).
 
 **Error helpers** in `server/utils/errors.ts`:
 ```ts
@@ -69,26 +70,33 @@ The cookie value is an opaque token; everything else is a DB row.
 
 ```ts
 // server/db/schema/session.ts
-export const sessions = pgTable('sessions', {
-  id:        serial('id').primaryKey(),
-  token:     text('token').notNull().unique(),
-  userId:    integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-})
+export const sessions = pgTable(
+  'sessions',
+  {
+    id:        serial('id').primaryKey(),
+    token:     text('token').notNull().unique(),
+    userId:    integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Index the FK — Postgres does NOT auto-index FK columns.
+  // Without this, revokeAllForUser and the user-delete cascade scan the whole table.
+  (t) => [index('sessions_user_id_idx').on(t.userId)],
+)
 ```
 
 **Lifecycle (service)** — TTL is a business policy, so it lives in the service:
 ```ts
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30 // 30 days
 
-create(userId)         → token = randomBytes(32).toString('base64url'); insert {token,userId,expiresAt}
-resolve(token)         → findByToken → if expired, delete + return null (self-healing prune) → else {user, session}
-revoke(token)          → delete one session (logout)
-revokeAllForUser(userId) → delete all ("sign out everywhere" / after password change)
+create(userId)           → token = randomBytes(32).toString('base64url'); insert {token,userId,expiresAt}
+resolve(token)           → findByTokenWithUser (one join round-trip) → if expired: delete + return null
+                           → if user missing (orphaned session): delete + return null → else { user, session }
+revoke(token)            → deleteByToken (logout)
+revokeAllForUser(userId) → deleteByUserId ("sign out everywhere" / after password change)
 ```
 
-`resolve` returns **`null`** for anonymous/expired — the edge decides whether that's a 401.
+`resolve` uses `findByTokenWithUser` — a **single left-join query** that fetches the session and its user in one round-trip (the per-request hot path). It handles two self-healing prune cases: an expired session (deleted, returns null) and an orphaned session where the user row is gone but the FK cascade didn't fire (deleted, returns null). `resolve` returns **`null`** for all "no valid session" cases — the edge decides whether that's a 401.
 
 **Cookie (edge)**:
 ```ts
@@ -171,12 +179,13 @@ Keep the service signature actor-explicit (`create(ownerId, input)`) so the tena
 - `user.emailVerifiedAt` is `Date | null` — null means unverified. `presentAuthUserV1` converts this to a boolean `email_verified`.
 - `authService.login` returns `User | { mfaRequired: true; userId: number }` — narrow with `'mfaRequired' in result` before accessing either branch.
 - `hashPassword` / `verifyPassword` are **async** — always `await` them.
+- `sessionRepository.findByTokenWithUser` returns `{ session: Session; user: User | null } | undefined` — the `user` field can be null for an orphaned session; `sessionService.resolve` self-heals both cases before returning.
 - **Client:** use `useAuth()` (from the `1.auth` layer), not `useUserSession()`. `fetchUser()` uses `useRequestFetch()` so the cookie is forwarded during SSR (no auth flicker). The `AuthUser` interface mirrors `presentAuthUserV1` shape including `email_verified` and `mfa_enabled`.
 
 ---
 
 ## §6 Definition of done
-- [ ] `users` has `email` (unique), `name`, `role` (CHECK constraint), **nullable** `passwordHash`, nullable `emailVerifiedAt`, boolean `mfaEnabled`; `sessions` table added.
+- [ ] `users` has `email` (unique), `name`, `role` (CHECK constraint), **nullable** `passwordHash`, nullable `emailVerifiedAt`, boolean `mfaEnabled`; `sessions` table with `sessions_user_id_idx` index added.
 - [ ] `unauthorized` (401) + `forbidden` (403) in `errors.ts`.
 - [ ] Cookie I/O + `requireUser` only at the edge; session lifecycle in `sessionService`; async hash/verify only in `authService`.
 - [ ] `register` (201) / `login` / `logout` (204 + `return null`) / `me` (401) wired; bodies validated by shared v1 schema; `register` never accepts `role`.
@@ -189,7 +198,7 @@ Keep the service signature actor-explicit (`create(ownerId, input)`) so the tena
 - [ ] `npx nuxt typecheck` passes.
 
 ## Relationship to the other docs
-- **account-security skill** — password reset, email verification, MFA enable/disable/send/verify. Extends auth; don't duplicate here.
+- **account-security skill** — password reset, email verification, MFA enable/disable/send/verify (including the pre-auth cookie flow). Extends auth; don't duplicate here.
 - **database skill** — the `users` columns + `sessions` table + migration.
 - **api skill** — endpoint shape, validation, presenters, status codes.
 - **rbac skill** — `requireRole`/`requireMinRole`/`requireVerifiedUser` and the `role` model. Auth gives you a logged-in `User`; rbac decides what that role may do.

@@ -68,10 +68,10 @@ server/
   api/
     v1/users/                     # collection reference: list, create, get, patch, delete
     v1/users/[id]/role.patch.ts   # super_admin-only role mutation (isolated endpoint)
-    v1/auth/                      # login, register, logout, me
+    v1/auth/                      # login (issues mfa_preauth cookie on MFA), register, logout, me
                                   # forgot-password, reset-password
                                   # verify-email, resend-verification
-                                  # mfa/send, mfa/verify, mfa/enable, mfa/disable
+                                  # mfa/send (no body), mfa/verify ({ code } only), mfa/enable, mfa/disable
     v1/admin/                     # role-gated area (requireMinRole 'admin')
     v1/info/                      # singleton: app identity & branding (super_admin writes, GET cached 24h)
     v1/seo/                       # singleton: SEO metadata (super_admin writes, GET cached 24h)
@@ -99,6 +99,7 @@ server/
       passwordResetToken.ts       # password_reset_tokens (tokenHash, expiresAt)
       emailVerificationToken.ts   # email_verification_tokens (tokenHash, expiresAt)
       mfaCode.ts                  # mfa_codes (codeHash, attempts, expiresAt)
+      mfaPreAuthToken.ts          # mfa_preauth_tokens (tokenHash, 10-min TTL, binds MFA flow to password check)
       rateLimitAttempt.ts         # rate_limit_attempts (atomic upsert bucket)
   utils/
     auth.ts                       # edge: setSessionCookie, requireUser, requireMinRole,
@@ -169,22 +170,3 @@ Open http://localhost:8025 to see emails. Without Mailpit, the mailer falls back
 - http://localhost:3000/api/v2/users — requires login; hides admin/super_admin rows
 
 No Docker? Point `DATABASE_URL` at any reachable Postgres — nothing else changes.
-
-## Upgrading core dependencies
- 
-`@nuxthub/core`, `nuxt`, `drizzle-orm`, and `drizzle-kit` are pinned to exact
-versions in `package.json`. Minor bumps in these packages have historically
-introduced breaking schema generation, session middleware, or Nitro bundler
-behaviour — a failed deploy is worse than a manual upgrade step.
- 
-To upgrade any of them:
- 
-1. Change the version in `package.json`
-2. Run `npm install`
-3. Run `npm run db:generate` — inspect any new migration file before committing
-4. Run `npx nuxt typecheck`
-5. Run `npm run build`
-6. Check the NuxtHub + Drizzle changelogs for breaking changes
-7. Commit `package.json` and `package-lock.json` together in one PR
-All other packages (`tailwindcss`, `pinia`, `vue`, `zod`, etc.) keep `^` because
-their API surface touching this project is stable across minor versions.
