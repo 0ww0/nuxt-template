@@ -109,6 +109,10 @@ export const <entity>Repository = {
   async create(data: New<Entity>): Promise<<Entity>> {
     const [row] = await db.insert(schema.<entities>).values(data).returning()
     return row!
+    // Note: if the table has a unique constraint (e.g. email), wrap in try/catch
+    // and convert Postgres error code 23505 → conflict('...') so concurrent
+    // inserts that slip past the service pre-check surface as clean 409s, not 500s.
+    // See user.repository.ts for the isUniqueViolation() pattern.
   },
   async update(id: number, data: Partial<New<Entity>>): Promise<<Entity> | undefined> {
     const [row] = await db.update(schema.<entities>).set(data)
@@ -277,6 +281,8 @@ export default defineEventHandler(async (event) => {
 - [ ] v1 presenter created; no secret columns exposed.
 - [ ] All five route handlers thin (validate → service → present, ~10 lines).
 - [ ] No business logic in handlers; no DB calls outside the repository.
+- [ ] `npm run conventions` passes (`scripts/check-conventions.sh`).
+- [ ] If any handler calls `checkRateLimit`: `npm run gen:rate-limits` run and `RATE_LIMITS.md` committed.
 - [ ] `npx nuxt typecheck` passes.
 - [ ] Migration generated: `npm run db:generate`.
 
