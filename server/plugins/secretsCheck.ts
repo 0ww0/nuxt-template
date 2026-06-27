@@ -20,9 +20,9 @@ export default defineNitroPlugin(() => {
 
   if (!secret || secret.length < 32) {
     throw new Error(
-      `[startup] NUXT_SESSION_SECRET must be at least 32 characters. ` +
-      `Got length: ${secret?.length ?? 0}. ` +
-      `Generate one: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`,
+      `[startup] NUXT_SESSION_SECRET must be at least 32 characters (got: ${secret?.length ?? 0}).\n` +
+      `  → Have you copied .env.example to .env and filled in the values?\n` +
+      `  → Generate a secret: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
     )
   }
 
