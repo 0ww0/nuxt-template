@@ -54,10 +54,12 @@ No auth module to install — sessions are plain DB rows, hashing uses `node:cry
 
 **Error helpers** in `server/utils/errors.ts`:
 ```ts
-export const unauthorized = (message = 'Authentication required') =>
-  createError({ statusCode: 401, statusMessage: message })
-export const forbidden = (message = 'You do not have permission to do that') =>
-  createError({ statusCode: 403, statusMessage: message })
+export function unauthorized(message = 'Authentication required') {
+  return createError({ statusCode: 401, statusMessage: message })
+}
+export function forbidden(message = 'You do not have permission to do that') {
+  return createError({ statusCode: 403, statusMessage: message })
+}
 ```
 
 Run `npm run db:generate`; the dev server auto-applies the migration.
