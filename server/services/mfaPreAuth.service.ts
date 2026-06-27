@@ -7,9 +7,16 @@
 // accepts) a userId from the request body.
 //
 // All three handlers (login, mfa/send, mfa/verify) call into this service:
-//   login    → issueToken(userId)
-//   mfa/send → validateToken(rawToken)   // resolves userId, re-use allowed (send may be retried)
-//   mfa/verify → consumeToken(rawToken)  // resolves userId + burns token (single-use on success)
+//   login      → issueToken(userId)      — issues token, puts raw value in httpOnly cookie
+//   mfa/send   → validateToken(rawToken) — resolves userId; does NOT burn (send may be retried)
+//   mfa/verify → validateToken(rawToken) — resolves userId on entry (does NOT burn)
+//              → consumeToken(rawToken)  — burns token only AFTER verifyCode succeeds
+//
+// Burn-on-success (not burn-on-entry) is intentional:
+//   A wrong OTP should not force a full re-login. The OTP's 5-attempt cap
+//   (atomic incrementAttempts) and the mfa-verify rate-limit bucket are the
+//   real brute-force gates. The pre-auth token only binds "who is trying" and
+//   does not need to be single-use on a wrong OTP.
 import { randomBytes, createHash } from 'node:crypto'
 import { mfaPreAuthTokenRepository } from '../repositories/mfaPreAuthToken.repository'
 import { unauthorized } from '../utils/errors'
@@ -36,7 +43,8 @@ export const mfaPreAuthService = {
   },
 
   // Validate the raw token from the cookie. Returns the bound userId.
-  // Does NOT burn the token — mfa/send may be called multiple times (retries).
+  // Does NOT burn the token — mfa/send may be called multiple times (retries),
+  // and mfa/verify calls this on entry so a wrong OTP doesn't force a re-login.
   // Throws 401 for missing, expired, or malformed tokens.
   async validateToken(rawToken: string | undefined): Promise<number> {
     if (!rawToken) throw unauthorized('MFA session expired or missing — please log in again')
@@ -45,8 +53,9 @@ export const mfaPreAuthService = {
     return record.userId
   },
 
-  // Validate + burn in one call. Used by mfa/verify on success so the pre-auth
-  // cookie can't be reused to trigger another verify attempt.
+  // Validate + burn in one call. Called by mfa/verify AFTER verifyCode succeeds
+  // so the pre-auth cookie can't be reused for a second session. Never call this
+  // on a failed OTP attempt — use validateToken on entry instead.
   async consumeToken(rawToken: string | undefined): Promise<number> {
     const userId = await this.validateToken(rawToken)
     await mfaPreAuthTokenRepository.deleteByUserId(userId)
