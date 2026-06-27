@@ -56,6 +56,8 @@ Check, at minimum:
 - One-time secrets are hashed at rest (sha256), emailed once, single-use, expiring; passwords use scrypt (don't cross them).
 - Sensitive endpoints call `checkRateLimit` BEFORE DB/crypto work (login before scrypt).
 - Password change revokes sessions (`revokeAllForUser`); MFA enable/disable is behind step-up auth.
+- **MFA pre-auth cookie pattern**: `/mfa/send` must have NO request body (userId resolved from `mfa_preauth` httpOnly cookie); `/mfa/verify` body must be `{ code }` only — never `{ userId, code }`. Login MFA response is `{ mfa_required: true }` with no userId in the body.
+- `mfaPreAuthService.validateToken` does NOT burn the token on entry; only `consumeToken` burns. Flag any handler calling `consumeToken` on a failed OTP attempt.
 
 **Webhooks**
 - Handlers under `server/api/*/webhooks/` (or any CSRF-exempt path) MUST call `requireWebhookSignature(event)` from `server/utils/webhook.ts` as their **first line**. The CSRF middleware gate is defense-in-depth only. Flag any webhook handler that skips this call.
