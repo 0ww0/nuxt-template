@@ -131,12 +131,18 @@ All thin: validate → `checkRateLimit` → service → cookie → present. Bodi
 ```ts
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto'
 import { promisify } from 'node:util'
-const scryptAsync = promisify(scrypt)
+
+// Cast promisify's return to a typed signature so `derived` is Buffer — no cast needed on use.
+const scryptAsync = promisify(scrypt) as (
+  password: string | Buffer,
+  salt: string | Buffer,
+  keylen: number,
+) => Promise<Buffer>
 
 async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16)
   const derived = await scryptAsync(password, salt, 64)
-  return `${salt.toString('hex')}:${(derived as Buffer).toString('hex')}`
+  return `${salt.toString('hex')}:${derived.toString('hex')}` // derived is Buffer — no cast needed
 }
 ```
 

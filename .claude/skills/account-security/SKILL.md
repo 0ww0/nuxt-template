@@ -163,7 +163,7 @@ Wire SMTP (nodemailer) or an HTTP provider (Resend/Postmark/SES) in the prod bra
 New `*_tokens` table (hash `unique`, `userId` FK cascade, `expiresAt`) → repository trio (`create`/`findUsableByHash`/`deleteByUserId`) → service: `deleteByUserId` → `create(sha256(raw))` → `sendMail` → verify: hash input → look up → act → burn → rate-limited handler → add to cleanup task.
 
 ## §9 Definition of done
-- [ ] Four token tables + `users.emailVerifiedAt` + `users.mfaEnabled`; all in the cleanup task.
+- [ ] Four token tables (`passwordResetTokens`, `emailVerificationTokens`, `mfaCodes`, `mfaPreAuthTokens`) + `users.emailVerifiedAt` + `users.mfaEnabled`; all included in the cleanup task (which prunes six tables total: these four plus sessions and rate-limit attempts).
 - [ ] Only SHA-256 hash stored; raw secret emailed once; `sha256()` (not scrypt) for tokens/OTPs.
 - [ ] `findUsableByHash` checks hash AND expiry; single-use burn on success; newest-only on re-issue.
 - [ ] Forgot-password silent no-op + generic 200; mail errors silently swallowed.
