@@ -8,6 +8,13 @@
       "when": 1782376729857,
       "tag": "0000_yellow_adam_warlock",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782557903929,
+      "tag": "0001_common_clint_barton",
+      "breakpoints": true
     }
   ]
 }
