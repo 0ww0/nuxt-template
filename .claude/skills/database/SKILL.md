@@ -34,7 +34,7 @@ This project's data layer. Use it to make safe, convention-correct changes to th
 - **Collection tables** (many rows): `server/db/schema/<entity>.ts` — e.g. `user.ts`, `project.ts`.
 - **Singleton tables** (one config row): `server/db/schema/<entity>Setting.ts` — e.g. `infoSetting.ts`, `seoSetting.ts`. The Drizzle export is plural camelCase (`infoSettings`); types are `<Entity>Setting` / `New<Entity>Setting`.
 
-### Collection table template (mirror `server/db/schema/user.ts`)
+### Collection table template
 
 ```ts
 // server/db/schema/<entity>.ts
@@ -53,6 +53,8 @@ export type New<Entity> = typeof <entities>.$inferInsert
 ```
 
 > **Column strings are optional** — `hub.db.casing: 'snake_case'` maps camelCase keys to snake_case columns automatically. Omit the string arg (`serial()` not `serial('id')`) to keep the schema clean. Add it only when the column name must differ from the key.
+>
+> **Note on `user.ts`:** this file pre-dates the casing convention and still uses explicit column strings (`serial('id')`, `text('email')`, etc.). New tables should use the no-string style shown above. The `user.ts` file is a reference for *structure and type exports*, not for the column string style.
 
 > **`updatedAt.$onUpdate`** — fires on Drizzle-initiated `UPDATE` only, not raw SQL. Always pair with `.defaultNow()` so the initial INSERT has a value.
 
