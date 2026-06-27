@@ -60,7 +60,7 @@ Check, at minimum:
 - `mfaPreAuthService.validateToken` does NOT burn the token on entry; only `consumeToken` burns. Flag any handler calling `consumeToken` on a failed OTP attempt.
 
 **Webhooks**
-- Handlers under `server/api/*/webhooks/` (or any CSRF-exempt path) MUST call `requireWebhookSignature(event)` from `server/utils/webhook.ts` as their **first line**. The CSRF middleware gate is defense-in-depth only. Flag any webhook handler that skips this call.
+- Handlers under `server/api/webhooks/` (no version prefix — webhook routes are not versioned) MUST call `requireWebhookSignature(event)` from `server/utils/webhook.ts` as their **first line**. The CSRF middleware gate is defense-in-depth only. Flag any webhook handler that skips this call.
 
 **TypeScript**
 - `noUncheckedIndexedAccess` handled: always-one-row ops `return row!`; maybe-missing ops keep `| undefined` and are guarded before use.

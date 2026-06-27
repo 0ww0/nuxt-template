@@ -9,7 +9,7 @@ This file tells an AI agent exactly how this codebase is structured and how to g
 >
 > **Auth, roles, abuse, or account flows?** Logged-in/owned resources → auth skill; role-gating → rbac skill; throttling → rate-limit skill; reset/verify/MFA → account-security skill (all in `.claude/skills/`).
 >
-> **Webhook handlers?** They live under `server/api/v1/webhooks/`, are CSRF-exempt, and MUST call `requireWebhookSignature(event)` as their first line. See `server/utils/webhook.ts` and `server/middleware/csrf.ts`.
+> **Webhook handlers?** They live under `server/api/webhooks/` (no version prefix — webhook routes are not versioned), are CSRF-exempt, and MUST call `requireWebhookSignature(event)` as their first line. See `server/utils/webhook.ts` and `server/middleware/csrf.ts`.
 >
 > **Want it scaffolded or reviewed?** Use the `resource-scaffolder` and `convention-reviewer` agents in `.claude/agents/`.
 

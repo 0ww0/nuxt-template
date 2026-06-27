@@ -121,6 +121,12 @@ Consult the relevant doc before writing code; mirror its templates.
 - NuxtHub moves fast — if a version-sensitive API detail is uncertain, say so and
   verify against current NuxtHub docs rather than guessing.
 
+## Tooling & automation
+- **`npm run conventions`** (`scripts/check-conventions.sh`) — run before committing. Checks: `@nuxthub/db` import discipline, HTTP-agnostic services, PATCH `.strict()`, role in public schemas, webhook signature enforcement, singleton cache-purge presence, secret-column presenter spreads.
+- **`npm run gen:rate-limits`** (`scripts/gen-rate-limits.mjs`) — must be run and committed alongside any `checkRateLimit` call change. CI fails if `RATE_LIMITS.md` is stale.
+- **`server/plugins/secretsCheck.ts`** — startup guard that hard-throws if `NUXT_SESSION_SECRET` is shorter than 32 chars (all environments), and warns if `NUXT_WEBHOOK_SECRET` or `SMTP_HOST` are missing in production.
+- **CI** (`.github/workflows/ci.yml`) — 10 checks: typecheck, Nitro build, `@nuxthub/db` discipline, HTTP-agnostic services, webhook signature, PATCH `.strict()`, role schemas, `RATE_LIMITS.md` freshness, migration drift, `.env.example` coverage.
+
 ## TypeScript (project sets `noUncheckedIndexedAccess`)
 - `const [row] = await db…returning()` is `T | undefined`.
   - Always-one-row ops (`create`, `upsert`): `return row!` and declare a

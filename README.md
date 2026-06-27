@@ -148,6 +148,29 @@ Use the **resource-scaffolder** agent (`.claude/agents/resource-scaffolder.md`):
 - **`resource-scaffolder`** — generates a complete resource slice, then runs `db:generate` + `typecheck`.
 - **`convention-reviewer`** — reviews a changeset against the hard rules. Reports only; never edits.
 
+## Tooling & CI
+
+```
+scripts/
+  check-conventions.sh     # local convention checker (also runs in CI)
+  gen-rate-limits.mjs      # scans checkRateLimit() calls → rewrites RATE_LIMITS.md
+  check-role-schemas.sh    # verifies role only appears in gated schemas
+RATE_LIMITS.md             # auto-generated; commit alongside handler changes
+.github/workflows/
+  ci.yml                   # 10-step CI: typecheck → build → layer discipline →
+                           #   webhook sig → rate-limit warnings → PATCH .strict() →
+                           #   role schema → RATE_LIMITS.md freshness →
+                           #   migration drift → .env.example drift
+  pr-bot.yml               # opens/updates PRs with DoD checklist + reviewer hint
+server/plugins/
+  secretsCheck.ts          # startup guard: NUXT_SESSION_SECRET ≥ 32 chars (hard throw);
+                           #   NUXT_WEBHOOK_SECRET + SMTP_HOST missing in prod (warn)
+```
+
+**After adding a `checkRateLimit` call**, run `npm run gen:rate-limits` and commit the updated `RATE_LIMITS.md` alongside the handler. CI will fail if the file is stale.
+
+**To run convention checks locally:** `npm run conventions` (runs `scripts/check-conventions.sh`).
+
 ## Run it (Postgres, dev)
 
 ```bash

@@ -42,8 +42,9 @@ Never hand-write `if (user.role !== 'admin') throw 403` — call the guard.
 3. The session → user resolution from the auth skill (`getCurrentUser` / `requireUser` in `server/utils/auth.ts`).
 4. `forbidden` (403) in `server/utils/errors.ts`:
    ```ts
-   export const forbidden = (message = 'Forbidden') =>
-     createError({ statusCode: 403, statusMessage: message })
+   export function forbidden(message = 'You do not have permission to do that') {
+     return createError({ statusCode: 403, statusMessage: message })
+   }
    ```
 
 ---
