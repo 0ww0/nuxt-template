@@ -1,5 +1,8 @@
 // server/services/mfaPreAuth.service.ts
-// HTTP-agnostic service for the MFA pre-auth token flow.
+// Business rules for the MFA pre-auth token flow. HTTP-agnostic — never import `event` or status codes.
+// DB access via mfaPreAuthToken.repository.ts only.
+// Throws: unauthorized from server/utils/errors.ts.
+// See also: mfa.service.ts (OTP send/verify), auth.service.ts (login that triggers this flow).
 //
 // The pre-auth token is issued by login.post.ts after a successful password
 // check when the account has MFA enabled. It binds the MFA send/verify flow to
@@ -56,9 +59,10 @@ export const mfaPreAuthService = {
   // Validate + burn in one call. Called by mfa/verify AFTER verifyCode succeeds
   // so the pre-auth cookie can't be reused for a second session. Never call this
   // on a failed OTP attempt — use validateToken on entry instead.
-  async consumeToken(rawToken: string | undefined): Promise<number> {
-    const userId = await this.validateToken(rawToken)
-    await mfaPreAuthTokenRepository.deleteByUserId(userId)
-    return userId
+  async consumeToken(rawToken: string | undefined): Promise<void> {
+    if (!rawToken) throw unauthorized('MFA session expired or missing — please log in again')
+    const record = await mfaPreAuthTokenRepository.findUsableByHash(sha256(rawToken))
+    if (!record) throw unauthorized('MFA session expired or missing — please log in again')
+    await mfaPreAuthTokenRepository.deleteByUserId(record.userId)
   },
 }

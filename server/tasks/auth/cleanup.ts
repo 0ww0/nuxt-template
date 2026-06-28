@@ -1,7 +1,8 @@
 // server/tasks/auth/cleanup.ts
-import { db, schema } from '@nuxthub/db'
-import { lt, and, isNull, or } from 'drizzle-orm'
-
+// ARCHITECTURAL EXCEPTION: scheduled maintenance task.
+// May import @nuxthub/db directly — this is the only permitted non-repository use.
+// Do NOT copy this import into services, handlers, or plugins. See AGENTS.md §1.
+//
 // Nitro scheduled task — runs hourly to prune expired rows.
 // Scheduled in nuxt.config.ts:
 //
@@ -20,17 +21,8 @@ import { lt, and, isNull, or } from 'drizzle-orm'
 //  4. Expired MFA OTP codes
 //  5. Expired MFA pre-auth tokens (short-lived cookie-binding rows)
 //  6. Stale rate-limit buckets (window closed AND not currently locked)
-//
-// ⚠ ARCHITECTURAL EXCEPTION: This file imports @nuxthub/db directly, which
-// violates the "only repositories import @nuxthub/db" rule in AGENTS.md.
-// This is an ACCEPTED ONE-OFF exception because scheduled cleanup tasks are
-// maintenance-only, never called from routes/services, and bulk-deleting
-// expired rows across six tables doesn't warrant six repository methods
-// that exist solely for this task.
-//
-// DO NOT use this as precedent. Route handlers and services MUST go through
-// the repository layer. If you need DB access elsewhere, add a repository
-// method instead.
+import { db, schema } from '@nuxthub/db'
+import { lt, and, isNull, or } from 'drizzle-orm'
 
 // Longest rate-limit window in use across all checkRateLimit() call sites
 // (currently forgot-password / verify-email at 60 min). A rate-limit row is
@@ -75,18 +67,17 @@ export default defineTask({
           .where(lt(schema.mfaPreAuthTokens.expiresAt, now))
           .returning({ id: schema.mfaPreAuthTokens.id }),
 
-        // Rate-limit rows: delete only when the window is closed AND the bucket
-        // is not currently locked (blockedUntil is null or in the past).
+        // Rate-limit rows — only prune when the fixed window has closed AND
+        // the bucket is not currently locked. An active lockout (blockedUntil
+        // in the future) must survive so later requests still receive 429.
         db
           .delete(schema.rateLimitAttempts)
           .where(
             and(
-              // Stale once last updated longer ago than the longest window.
               lt(
-                schema.rateLimitAttempts.updatedAt,
+                schema.rateLimitAttempts.windowStart,
                 new Date(now.getTime() - MAX_RATE_LIMIT_WINDOW_MS),
               ),
-              // Not currently locked (either never locked, or lock has expired).
               or(
                 isNull(schema.rateLimitAttempts.blockedUntil),
                 lt(schema.rateLimitAttempts.blockedUntil, now),
@@ -96,15 +87,15 @@ export default defineTask({
           .returning({ id: schema.rateLimitAttempts.id }),
       ])
 
-    const result = {
-      sessions: sessions.length,
-      resetTokens: resetTokens.length,
-      verifyTokens: verifyTokens.length,
-      mfaCodes: mfaCodes.length,
-      mfaPreAuthTokens: mfaPreAuthTokens.length,
-      rateLimitRows: rateLimitRows.length,
+    return {
+      result: {
+        sessions: sessions.length,
+        resetTokens: resetTokens.length,
+        verifyTokens: verifyTokens.length,
+        mfaCodes: mfaCodes.length,
+        mfaPreAuthTokens: mfaPreAuthTokens.length,
+        rateLimitRows: rateLimitRows.length,
+      },
     }
-    console.info('[auth:cleanup]', result)
-    return { result }
   },
 })

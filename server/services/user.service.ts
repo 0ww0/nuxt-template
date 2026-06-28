@@ -1,9 +1,8 @@
-import { userRepository } from '../repositories/user.repository'
-import { conflict, forbidden, notFound } from '../utils/errors'
-import { ROLE_RANK, roleAtLeast, type UserRole } from '../../shared/auth/roles'
-import type { User } from '../db/schema'
-
-// SERVICE LAYER — business rules. HTTP-agnostic, SHARED across API versions.
+// server/services/user.service.ts
+// Business rules for User management. HTTP-agnostic — never import `event` or status codes.
+// DB access via user.repository.ts only.
+// Throws: notFound / conflict / forbidden from server/utils/errors.ts.
+// See also: auth.service.ts (user creation via register — intentionally NOT here).
 //
 // NOTE: user creation (registration) is intentionally NOT here. All paths that
 // create a user — public self-sign-up and admin provisioning — go through
@@ -12,6 +11,11 @@ import type { User } from '../db/schema'
 //
 // Role mutation and deletion are actor-aware: the handler resolves the actor at
 // the edge and passes it in, so the rank rules below can't be bypassed.
+import { userRepository } from '../repositories/user.repository'
+import { conflict, forbidden, notFound } from '../utils/errors'
+import { ROLE_RANK, roleAtLeast, type UserRole } from '../../shared/auth/roles'
+import type { User } from '../db/schema'
+
 export const userService = {
   list() {
     return userRepository.findAll()
@@ -78,8 +82,7 @@ export const userService = {
   //  - admin       → can delete users, but not admins or super_admins
   //  - super_admin → can delete users and admins, but not another super_admin
   // (Super_admins are therefore un-deletable via the API by design; remove at the
-  // DB/seeder level if ever truly required. This also means there's no last-
-  // super_admin delete hole to guard.)
+  // DB/seeder level if ever truly required.)
   async remove(actor: User, targetId: number) {
     const target = await userRepository.findById(targetId)
     if (!target) throw notFound('User')

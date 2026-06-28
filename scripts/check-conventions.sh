@@ -115,6 +115,20 @@ for s in info seo analytics general contact; do
   done
 done
 
+# ── 6b. Singleton cache purge must use the CACHE_STORAGE_KEY constant ────────
+# A bare string in removeItem() silently targets a different key than the one
+# Nitro actually stores, leaving stale data until the TTL expires.
+# All five write handlers must reference the exported *_CACHE_STORAGE_KEY
+# constant, not a string literal.
+section "singleton cache purge uses constant (not bare string)"
+bad=$(grep -rn "removeItem('" server/api --include='*.ts' 2>/dev/null || true)
+if [ -n "$bad" ]; then
+  err "singleton write handler calls removeItem with a bare string — use the CACHE_STORAGE_KEY constant:"
+  printf '%s\n' "$bad" | indent
+else
+  ok "no bare-string removeItem calls found"
+fi
+
 # ── 7. Secret columns ⇒ hand-listed presenters (advisory) ────────────────────
 section "secret-bearing columns & presenter spreads"
 secrets=$(grep -rnE '(Hash|Token|Secret)\b' server/db/schema --include='*.ts' 2>/dev/null | grep -v '^\s*//' || true)
@@ -157,6 +171,29 @@ done < <(grep -rlE 'sendMail|mfaService' server/api --include='*.ts' 2>/dev/null
   | grep -v "mfa/enable" \
   | grep -v "mfa/disable" \
   || true)
+
+# ── 9. .env.example covers all referenced env vars (advisory) ────────────────
+# Mirrors CI step 10 so developers see the same failure locally before push.
+# Collects every process.env.VAR_NAME and runtimeConfig.key reference in
+# nuxt.config.ts and server/, then checks each against .env.example.
+section ".env.example covers all used env vars"
+if [ -f .env.example ]; then
+  used=$(grep -rhoE 'process\.env\.[A-Z_][A-Z0-9_]+' \
+    nuxt.config.ts server/ --include='*.ts' 2>/dev/null \
+    | grep -oE '[A-Z_][A-Z0-9_]+$' \
+    | sort -u || true)
+  any_missing=0
+  while IFS= read -r var; do
+    [ -z "$var" ] && continue
+    if ! grep -q "^${var}=" .env.example 2>/dev/null; then
+      note "$var referenced in code but missing from .env.example"
+      any_missing=1
+    fi
+  done <<< "$used"
+  [ "$any_missing" -eq 0 ] && ok ".env.example covers all detected process.env vars"
+else
+  note ".env.example not found — skipping coverage check"
+fi
 
 # ── Result ───────────────────────────────────────────────────────────────────
 echo

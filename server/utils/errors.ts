@@ -1,14 +1,19 @@
-// Domain errors thrown by the service layer. Services stay HTTP-agnostic by
-// throwing these; the createError() call still produces a proper H3 error so
-// route handlers don't need to translate anything. If you ever move a service
-// out of Nitro, swap these for plain Error subclasses.
-//
-// ⚠ SECURITY: statusMessage is returned VERBATIM to the client. Always use
-// user-facing resource names (e.g. 'User', 'Post') — never internal names
-// that reveal implementation details (e.g. 'Session', 'PasswordResetToken',
-// 'RateLimitAttempt'). For internal-only 404s, prefer a generic message:
-//   throw notFound('Resource')   ✅
-//   throw notFound('MfaCode')    ❌ — leaks internal table/model name
+/**
+ * @module server/utils/errors
+ * @importedBy services (throws domain errors), route handlers (tooManyRequests via rateLimit.ts)
+ * @notFor repositories — they throw raw DB driver errors; services catch and rethrow as domain errors
+ *
+ * Domain errors thrown by the service layer. Services stay HTTP-agnostic by
+ * throwing these; the createError() call still produces a proper H3 error so
+ * route handlers don't need to translate anything.
+ *
+ * ⚠ SECURITY: statusMessage is returned VERBATIM to the client. Always use
+ * user-facing resource names (e.g. 'User', 'Post') — never internal names
+ * that reveal implementation details (e.g. 'Session', 'PasswordResetToken',
+ * 'RateLimitAttempt'). For internal-only 404s, prefer a generic message:
+ *   throw notFound('Resource')   ✅
+ *   throw notFound('MfaCode')    ❌ — leaks internal table/model name
+ */
 
 export function notFound(resource: string) {
   return createError({ statusCode: 404, statusMessage: `${resource} not found` })
@@ -33,4 +38,25 @@ export function tooManyRequests(retryAfter?: Date) {
     ? `Too many requests. Try again after ${retryAfter.toUTCString()}.`
     : 'Too many requests. Please slow down.'
   return createError({ statusCode: 429, statusMessage: msg })
+}
+
+/**
+ * Asserts that a value is non-null/undefined, throwing notFound if not.
+ * Use in services after a repository findById call.
+ *
+ * Eliminates the repeated:
+ *   const row = await repo.findById(id)
+ *   if (!row) throw notFound('Entity')
+ *   return row
+ *
+ * Replace with:
+ *   return assertExists(await repo.findById(id), 'Entity')
+ *
+ * @example
+ *   const user = assertExists(await userRepo.findById(id), 'User')
+ *   const project = assertExists(await projectRepo.findById(id), 'Project')
+ */
+export function assertExists<T>(value: T | null | undefined, label: string): T {
+  if (value == null) throw notFound(label)
+  return value
 }

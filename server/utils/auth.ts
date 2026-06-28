@@ -1,12 +1,16 @@
+/**
+ * @module server/utils/auth
+ * @importedBy route handlers (server/api/**), server/plugins/secretsCheck.ts
+ * @notFor services — they receive the resolved user as a plain argument, never `event`
+ *
+ * Edge utilities for session cookie I/O and role gating. Everything here is
+ * HTTP-aware and intentionally lives outside the service layer.
+ */
 import type { H3Event } from 'h3'
 import { sessionService } from '../services/session.service'
 import { unauthorized, forbidden } from './errors'
 import type { User } from '../db/schema'
 import { roleAtLeast, type UserRole } from '../../shared/auth/roles'
-
-// EDGE / HTTP layer. This is where AUTHORIZATION is enforced (status codes,
-// cookies) — kept out of services so they stay HTTP-agnostic. Call these from
-// route handlers (or a Nitro middleware).
 
 // One stable cookie name. With HTTPS you can harden to the `__Host-session`
 // prefix, but that forces a name change between dev/prod, so we keep it simple.

@@ -1,3 +1,17 @@
+// server/services/mfa.service.ts
+// Business rules for email-OTP MFA. HTTP-agnostic — never import `event` or status codes.
+// DB access via mfaCode.repository.ts and user.repository.ts only.
+// Throws: unauthorized from server/utils/errors.ts.
+// See also: mfaPreAuth.service.ts (pre-auth cookie that binds send/verify to a
+//           password check), session.service.ts (session issued after verifyCode).
+//
+// Flow when mfaEnabled=true:
+//   1. authService.login() verifies password → handler calls sendCode(user) and
+//      returns { mfa_required: true }. NO session cookie is issued yet.
+//   2. Client POSTs { code } to /api/v1/auth/mfa/verify (userId from cookie).
+//   3. mfaService.verifyCode() validates → creates and returns the real session.
+//
+// The full session is never issued until BOTH factors succeed.
 import { randomInt, createHash } from 'node:crypto'
 import { mfaCodeRepository } from '../repositories/mfaCode.repository'
 import { userRepository } from '../repositories/user.repository'
@@ -5,17 +19,6 @@ import { sessionService } from './session.service'
 import { sendMail } from '../utils/mailer'
 import { unauthorized, notFound } from '../utils/errors'
 import type { Session, User } from '../db/schema'
-
-// SERVICE LAYER — MFA business rules. HTTP-agnostic.
-//
-// Flow when mfaEnabled=true:
-//   1. authService.login() verifies password → the handler calls
-//      mfaService.sendCode(user) and returns { mfa_required: true, userId }.
-//      NO session cookie is issued yet.
-//   2. Client POSTs { userId, code } to /api/v1/auth/mfa/verify.
-//   3. mfaService.verifyCode() validates → creates and returns the real session.
-//
-// The full session is never issued until BOTH factors succeed.
 
 const MFA_TTL_MS = 10 * 60 * 1000 // codes expire in 10 minutes
 const MAX_ATTEMPTS = 5             // wrong OTPs before the code is burned
@@ -53,7 +56,7 @@ export const mfaService = {
         text: `Your sign-in code is: ${code}\n\nIt expires in 10 minutes. Do not share it.`,
       })
     } catch (err) {
-      console.error('[mfa] could not send sign-in code email', err)
+      console.error('[mfa] could not send sign-in code email', err) // intentional: mail errors must not bubble
     }
   },
 

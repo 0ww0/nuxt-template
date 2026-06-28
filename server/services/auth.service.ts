@@ -1,3 +1,11 @@
+// server/services/auth.service.ts
+// Business rules for credential auth, password reset, and email verification.
+// HTTP-agnostic — never import `event` or status codes.
+// DB access via user.repository.ts, passwordResetToken.repository.ts,
+//   and emailVerificationToken.repository.ts only.
+// Throws: conflict / unauthorized / notFound from server/utils/errors.ts.
+// See also: mfa.service.ts (OTP), mfaPreAuth.service.ts (pre-auth cookie),
+//           session.service.ts (session creation after successful login).
 import { randomBytes, scrypt, timingSafeEqual, createHash } from 'node:crypto'
 import { promisify } from 'node:util'
 import { userRepository } from '../repositories/user.repository'
@@ -8,11 +16,6 @@ import { sendMail } from '../utils/mailer'
 import { conflict, notFound, unauthorized } from '../utils/errors'
 import type { User } from '../db/schema'
 import type { UserRole } from '../../shared/auth/roles'
-
-// SERVICE LAYER — core auth business rules. HTTP-agnostic.
-// Password hashing uses node:crypto scrypt (no extra dependency). Requires a
-// Node runtime (this template's Docker image runs `node-server`). On a pure
-// edge/serverless runtime, swap to Web Crypto PBKDF2.
 
 // ASYNC scrypt — runs the KDF on the libuv threadpool instead of blocking the
 // single Node event loop. scryptSync would freeze ALL request handling for the
@@ -98,7 +101,7 @@ export const authService = {
     try {
       await issueEmailVerification(user)
     } catch (err) {
-      console.error('[auth] could not send verification email', err)
+      console.error('[auth] could not send verification email', err) // intentional: mail errors must not bubble
     }
     return user
   },
@@ -129,7 +132,7 @@ export const authService = {
     return user
   },
 
-  // ---- Password reset (Step 2) -------------------------------------------
+  // ---- Password reset -------------------------------------------------------
 
   async requestPasswordReset(email: string): Promise<void> {
     const user = await userRepository.findByEmail(email)
@@ -146,8 +149,7 @@ export const authService = {
     const appUrl = useRuntimeConfig().public.appUrl
     const link = `${appUrl}/reset-password?token=${rawToken}`
 
-    // A mail failure (transport down, or unconfigured in prod where sendMail
-    // throws by design) must NOT bubble up here. The unknown-email path above
+    // A mail failure must NOT bubble up here. The unknown-email path above
     // returns a generic 200; if this registered-email path threw, the
     // 500-vs-200 difference would enumerate accounts. Log and return normally
     // so the response is identical regardless of account existence or delivery.
@@ -155,35 +157,39 @@ export const authService = {
       await sendMail({
         to: user.email,
         subject: 'Reset your password',
-        text: `Use this link to reset your password (valid for 1 hour):\n${link}\n\nIf you didn't request this, you can ignore this email.`,
+        text: `Click this link to reset your password (valid for 1 hour):\n${link}\n\nIf you did not request this, you can ignore this email.`,
       })
     } catch (err) {
-      console.error('[auth] could not send password reset email', err)
+      console.error('[auth] could not send password-reset email', err) // intentional: mail errors must not bubble
     }
   },
 
-  async resetPassword(token: string, newPassword: string): Promise<void> {
-    const record = await passwordResetTokenRepository.findUsableByHash(sha256(token))
-    if (!record) throw unauthorized('Invalid or expired reset token')
+  async resetPassword(rawToken: string, newPassword: string): Promise<void> {
+    const record = await passwordResetTokenRepository.findUsableByHash(sha256(rawToken))
+    if (!record) throw unauthorized('Invalid or expired reset link')
 
-    await userRepository.update(record.userId, { passwordHash: await hashPassword(newPassword) })
+    await userRepository.update(record.userId, {
+      passwordHash: await hashPassword(newPassword),
+    })
     await passwordResetTokenRepository.deleteByUserId(record.userId)
     await sessionService.revokeAllForUser(record.userId)
   },
 
-  // ---- Email verification (Step 3) ---------------------------------------
+  // ---- Email verification ---------------------------------------------------
+
+  async verifyEmail(rawToken: string): Promise<void> {
+    const record = await emailVerificationTokenRepository.findUsableByHash(sha256(rawToken))
+    if (!record) throw unauthorized('Invalid or expired verification link')
+
+    await userRepository.update(record.userId, { emailVerifiedAt: new Date() })
+    await emailVerificationTokenRepository.deleteByUserId(record.userId)
+  },
 
   async resendEmailVerification(userId: number): Promise<void> {
     const user = await userRepository.findById(userId)
     if (!user) throw notFound('User')
-    if (user.emailVerifiedAt) return // already verified → no-op
-    await issueEmailVerification(user)
-  },
+    if (user.emailVerifiedAt) return // already verified — no-op
 
-  async verifyEmail(token: string): Promise<void> {
-    const record = await emailVerificationTokenRepository.findUsableByHash(sha256(token))
-    if (!record) throw unauthorized('Invalid or expired verification token')
-    await userRepository.update(record.userId, { emailVerifiedAt: new Date() })
-    await emailVerificationTokenRepository.deleteByUserId(record.userId)
+    await issueEmailVerification(user)
   },
 }
