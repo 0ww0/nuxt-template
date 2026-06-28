@@ -1,8 +1,12 @@
+// server/services/session.service.ts
+// Business rules for Session lifecycle. HTTP-agnostic — never import `event` or status codes.
+// DB access via session.repository.ts only.
+// Throws: nothing (callers treat null as "no session"; edge throws 401 if required).
+// See also: auth.service.ts (credential verification that precedes session creation).
 import { randomBytes } from 'node:crypto'
 import { sessionRepository } from '../repositories/session.repository'
 import type { Session, User } from '../db/schema'
 
-// SERVICE LAYER — business rules. HTTP-agnostic, SHARED across API versions.
 // Session TTL is a business policy and lives here, not in a route handler.
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30 // 30 days
 

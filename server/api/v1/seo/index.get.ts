@@ -1,3 +1,7 @@
+// SINGLETON PATTERN — one row pinned to id = 1.
+// GET: cached read (cachedEventHandler). POST/PATCH: upsert + cache purge.
+// No [id] routes. See api skill §2 for the full pattern.
+// Cache key: import SEO_CACHE_STORAGE_KEY from './index.get'
 import { seoService } from '../../../services/seo.service'
 import { presentSeoV1 } from '../../../utils/presenters/seo.v1'
 

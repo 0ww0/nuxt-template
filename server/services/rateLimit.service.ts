@@ -1,14 +1,14 @@
+// server/services/rateLimit.service.ts
+// Business rules for rate-limit policy. HTTP-agnostic — never import `event` or status codes.
+// DB access via rateLimitAttempt.repository.ts only.
+// Throws: nothing (returns { allowed, retryAfter? }; the edge util owns the 429 throw).
+// See also: server/utils/rateLimit.ts (edge util that calls this and throws tooManyRequests).
 import { rateLimitAttemptRepository } from '../repositories/rateLimitAttempt.repository'
 
-// SERVICE LAYER — rate-limit policy. HTTP-agnostic; the caller (edge util)
-// owns the 429 throw. This service only decides whether a bucket is blocked.
-//
 // POLICY DEFAULTS (tune via the options object per call site):
 //   windowMs     — fixed window duration    (default 15 min)
 //   maxAttempts  — allowed hits per window  (default 10)
 //   lockoutMs    — lockout duration on breach (default 15 min)
-//
-// Per-endpoint tighter values are set at the call site in checkRateLimit().
 //
 // ATOMICITY: The repository's `hit()` method collapses the read-decide-write
 // into a single SQL upsert with a CASE expression, eliminating the TOCTOU race
@@ -57,4 +57,3 @@ export const rateLimitService = {
     return { allowed: true }
   },
 }
-
