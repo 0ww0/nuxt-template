@@ -189,6 +189,7 @@ Keep the service signature actor-explicit (`create(ownerId, input)`) so the tena
 - `hashPassword` / `verifyPassword` are **async** — always `await` them.
 - `sessionRepository.findByTokenWithUser` returns `{ session: Session; user: User | null } | undefined` — the `user` field can be null for an orphaned session; `sessionService.resolve` self-heals both cases before returning.
 - **Client:** use `useAuth()` (from the `1.auth` layer), not `useUserSession()`. `fetchUser()` uses `useRequestFetch()` so the cookie is forwarded during SSR (no auth flicker). The `AuthUser` interface mirrors `presentAuthUserV1` shape including `email_verified` and `mfa_enabled`.
+- **`useAuth().login()` does not handle MFA.** The composable types its `$fetch` as `AuthUser`, but when `mfa_enabled` is true the server returns `{ mfa_required: true }` instead. Login pages that support MFA must call `$fetch` directly, check for `mfa_required`, and redirect to the MFA flow rather than setting `user.value`. The base `useAuth` composable only covers the non-MFA path.
 
 ---
 
