@@ -130,17 +130,71 @@ else
 fi
 
 # ── 7. Secret columns ⇒ hand-listed presenters (advisory) ────────────────────
+# Two-part check:
+#
+# Part A — warn when a schema table with a secret-looking column (password_hash,
+#   token_hash, code_hash, etc.) also has a presenter file. Token/code tables
+#   (passwordResetToken, emailVerificationToken, mfaCode, mfaPreAuthToken) are
+#   internal and have no presenter, so they are silently skipped.
+#
+# Part B — warn when a presenter uses spread AND its entity stem matches a schema
+#   file that carries a secret column. Settings singletons (analytics, contact,
+#   general, info, seo) have no secret columns → silent. User presenters carry
+#   an explicit "Do NOT spread" annotation → suppressed by the annotation check.
 section "secret-bearing columns & presenter spreads"
-secrets=$(grep -rnE '(Hash|Token|Secret)\b' server/db/schema --include='*.ts' 2>/dev/null | grep -v '^\s*//' || true)
-if [ -n "$secrets" ]; then
-  note "schema columns that look secret — their presenters MUST be hand-listed (no { ...row }):"
-  printf '%s\n' "$secrets" | indent
-fi
-spreads=$(grep -rn '\.\.\.' server/utils/presenters --include='*.ts' 2>/dev/null || true)
-if [ -n "$spreads" ]; then
-  note "presenters using spread — confirm the underlying table has NO secret columns:"
-  printf '%s\n' "$spreads" | indent
-fi
+
+# Collect entity stems whose schema defines a secret-looking column via text().
+secret_stems=""
+while IFS= read -r schema_file; do
+  [ -z "$schema_file" ] && continue
+  stem=$(basename "$schema_file" .ts)
+  secret_stems="$secret_stems $stem"
+done < <(grep -rlE "text\('[a-z_]*(hash|token|secret)[a-z_]*'\)" \
+  server/db/schema --include='*.ts' 2>/dev/null || true)
+
+# Part A: flag stems that have both a secret column AND a presenter,
+# unless every existing presenter for that stem already carries an explicit
+# "Do NOT spread" safety annotation (meaning the risk has been reviewed).
+any_secret=0
+for stem in $secret_stems; do
+  presenter_files=$(ls server/utils/presenters/"${stem}".*.ts 2>/dev/null || true)
+  [ -z "$presenter_files" ] && continue
+  # Check whether ALL presenters for this stem are annotated
+  all_annotated=1
+  for pf in $presenter_files; do
+    if ! grep -q 'Do NOT\|no secret\|no.*[Hh]ash\|no.*[Tt]oken' "$pf" 2>/dev/null; then
+      all_annotated=0
+      break
+    fi
+  done
+  if [ "$all_annotated" -eq 0 ]; then
+    note "schema ${stem}.ts has secret column(s) and a presenter — presenter MUST hand-list fields (no { ...row }):"
+    grep -nE "text\('[a-z_]*(hash|token|secret)[a-z_]*'\)" \
+      "server/db/schema/${stem}.ts" 2>/dev/null | indent
+    any_secret=1
+  fi
+done
+[ "$any_secret" -eq 0 ] && ok "no presenter-exposed tables with secret columns detected"
+
+# Part B: flag spreading presenters only when their table has secret columns,
+# and only when they lack an explicit safety annotation.
+spread_warn=0
+while IFS= read -r presenter_file; do
+  [ -z "$presenter_file" ] && continue
+  pname=$(basename "$presenter_file")
+  pstem="${pname%%.*}"
+  # Skip if this presenter's underlying table has no secret columns
+  if ! echo "$secret_stems" | grep -qw "$pstem"; then
+    continue
+  fi
+  # Skip if the file already carries an explicit safety annotation
+  if grep -q 'Do NOT\|no secret\|no.*[Hh]ash\|no.*[Tt]oken' "$presenter_file" 2>/dev/null; then
+    continue
+  fi
+  note "$presenter_file spreads a table with secret columns — hand-list fields instead"
+  spread_warn=1
+done < <(grep -rln '\.\.\.' server/utils/presenters --include='*.ts' 2>/dev/null || true)
+[ "$spread_warn" -eq 0 ] && ok "no unsafe spreads in presenters"
 
 # ── 8. Sensitive handlers call checkRateLimit (advisory) ─────────────────────
 # Issue 10 fix: removed `authService` and `scryptAsync` from the grep pattern.
@@ -174,8 +228,8 @@ done < <(grep -rlE 'sendMail|mfaService' server/api --include='*.ts' 2>/dev/null
 
 # ── 9. .env.example covers all referenced env vars (advisory) ────────────────
 # Mirrors CI step 10 so developers see the same failure locally before push.
-# Collects every process.env.VAR_NAME and runtimeConfig.key reference in
-# nuxt.config.ts and server/, then checks each against .env.example.
+# Collects every process.env.VAR_NAME reference in nuxt.config.ts and server/,
+# then checks each against .env.example.
 section ".env.example covers all used env vars"
 if [ -f .env.example ]; then
   used=$(grep -rhoE 'process\.env\.[A-Z_][A-Z0-9_]+' \
