@@ -7,7 +7,6 @@ export default defineNuxtConfig({
     "@": fileURLToPath(new URL("./app", import.meta.url)),
     "@components": fileURLToPath(new URL("./app/components", import.meta.url)),
     "@composables": fileURLToPath(new URL("./app/composables", import.meta.url)),
-    "@types": fileURLToPath(new URL("./app/types", import.meta.url)),
     "@utils": fileURLToPath(new URL("./app/utils", import.meta.url)),
     "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
     "@server": fileURLToPath(new URL("./server", import.meta.url)),

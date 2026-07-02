@@ -1,4 +1,4 @@
-import type { ConfigProviderTheme } from '@/types/config.types';
+import type { ConfigProviderTheme } from '../app/types/config.types';
 
 // Augment Nuxt's AppConfigInput so `theme` are type-checked here
 // and fully typed (with autocomplete) wherever useAppConfig() is called.
