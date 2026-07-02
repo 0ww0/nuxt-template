@@ -15,14 +15,9 @@ const PROTECTED_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 //
 // ⚠ IMPORTANT: Every handler under these prefixes MUST call
 // `requireWebhookSignature(event)` from `server/utils/webhook.ts` at the very
-// top — that verifies the HMAC-SHA256 signature. The early header check below
-// is defense-in-depth, NOT a replacement for per-handler verification.
+// top — that verifies the HMAC-SHA256 signature. This is the ONLY signature
+// check; there is deliberately no header pre-check here (see below).
 const SKIP_PREFIXES: string[] = ['/api/webhooks']
-
-// Name of the header that webhook providers send the HMAC signature in.
-// Handlers can override this per-provider via requireWebhookSignature options,
-// but the middleware-level gate uses this default.
-const WEBHOOK_SIGNATURE_HEADER = 'x-webhook-signature'
 
 // Resolve the host we consider "ours" for the Origin comparison.
 //
@@ -53,17 +48,13 @@ export default defineEventHandler((event) => {
   if (!PROTECTED_METHODS.has(event.method)) return
 
   if (SKIP_PREFIXES.some((prefix) => event.path.startsWith(prefix))) {
-    // Defense-in-depth: reject webhook requests that don't even carry a
-    // signature header. The real HMAC verification happens in the handler
-    // via requireWebhookSignature(), but this blocks obviously unsigned
-    // requests at the gate (e.g. a browser CSRF or a misconfigured caller).
-    const sig = getRequestHeader(event, WEBHOOK_SIGNATURE_HEADER)
-    if (!sig) {
-      throw createError({
-        statusCode: 401,
-        statusMessage: `Missing ${WEBHOOK_SIGNATURE_HEADER} header`,
-      })
-    }
+    // No header pre-check here on purpose. Providers use different header
+    // names (Stripe: stripe-signature, GitHub: x-hub-signature-256, etc.) via
+    // requireWebhookSignature's `options.header` override, so any single
+    // default header this middleware checked for would reject every provider
+    // that doesn't use it. requireWebhookSignature(event) in the handler is
+    // the real, provider-correct gate — CI enforces it's called first-line
+    // in every server/api/webhooks/* handler.
     return
   }
 

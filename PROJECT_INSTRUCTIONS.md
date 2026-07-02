@@ -1,6 +1,6 @@
 # Project Instructions — Nuxt 4 + NuxtHub Full-Stack Template
 
-Paste this into the Claude Project's custom-instructions field. 
+Paste this into the Claude Project's custom-instructions field.
 Upload `AGENTS.md`, everything under `.claude/skills/`, `.claude/agents/`, and `README.md`.
 ---
 
@@ -99,14 +99,20 @@ Consult the relevant doc before writing code; mirror its templates.
 ## Webhooks
 - Third-party webhook handlers live under `server/api/webhooks/`.
 - The CSRF middleware (`server/middleware/csrf.ts`) exempts `/api/webhooks` from
-  the Origin-check because these are cross-origin server-to-server calls.
+  the Origin-check because these are cross-origin server-to-server calls. **That
+  exemption is all the middleware does for webhooks** — it performs no header or
+  signature check of its own, on purpose, since providers each use a different
+  signature header (see below) and a single default header would reject every
+  provider that doesn't use it.
 - **Every handler under `/api/webhooks/` MUST call
   `requireWebhookSignature(event)` from `server/utils/webhook.ts` as its first
   line** — this verifies the HMAC-SHA256 signature and returns the raw body
-  string. The middleware gate is defense-in-depth only, not a substitute.
-- Override `options.header` per provider (e.g. Stripe uses `stripe-signature`);
-  override `options.secret` when receiving from multiple providers with different
-  secrets. The default reads `runtimeConfig.webhookSecret`.
+  string. This is the sole signature gate; CI hard-fails any webhook handler
+  that skips it.
+- Override `options.header` per provider (e.g. Stripe uses `stripe-signature`,
+  GitHub uses `x-hub-signature-256`); override `options.secret` when receiving
+  from multiple providers with different secrets. The default reads
+  `runtimeConfig.webhookSecret`.
 
 ## NuxtHub specifics (do NOT get these wrong)
 - DB config in `nuxt.config.ts`: `hub.db.dialect = 'postgresql'`,
