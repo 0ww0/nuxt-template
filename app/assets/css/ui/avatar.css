@@ -1,0 +1,83 @@
+@layer customs {
+    @layer base {
+        .avatar-root {
+            @apply relative flex shrink-0 overflow-hidden;
+        }
+
+        .avatar-image {
+            @apply h-full w-full object-cover aspect-square;
+        }
+
+        .avatar-fallback {
+            @apply flex h-full w-full items-center justify-center font-medium select-none;
+        }
+    }
+
+    @layer sizes {
+        .avatar-8 {
+            @apply w-8 h-8 text-[10px];
+        }
+
+        .avatar-10 {
+            @apply w-10 h-10 text-[11px];
+        }
+
+        .avatar-12 {
+            @apply w-12 h-12 text-xs;
+        }
+
+        .avatar-14 {
+            @apply w-14 h-14 text-sm;
+        }
+
+        .avatar-16 {
+            @apply w-16 h-16 text-base;
+        }
+    }
+
+    @layer shapes {
+        .avatar-circle {
+            @apply rounded-full;
+        }
+
+        .avatar-rounded {
+            @apply rounded-xl;
+        }
+
+        .avatar-square {
+            @apply rounded-none;
+        }
+    }
+
+    @layer colors {
+        .avatar-root {
+            --avatar-bg: var(--color-neutral-100);
+            --avatar-fg: var(--color-neutral-500);
+            --avatar-border: var(--color-neutral-200);
+
+            background-color: var(--avatar-bg);
+            color: var(--avatar-fg);
+            border-color: var(--avatar-border);
+
+            @variant dark {
+                --avatar-bg: var(--color-neutral-800);
+                --avatar-fg: var(--color-neutral-400);
+                --avatar-border: var(--color-neutral-700);
+            }
+        }
+    }
+
+    @layer status {
+        .avatar-online {
+            @apply ring-2 ring-emerald-500 ring-offset-2;
+        }
+
+        .avatar-offline {
+            @apply ring-2 ring-neutral-400 ring-offset-2;
+        }
+
+        .avatar-away {
+            @apply ring-2 ring-amber-500 ring-offset-2;
+        }
+    }
+}

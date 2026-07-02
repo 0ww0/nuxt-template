@@ -1,1 +1,55 @@
 @import "tailwindcss";
+
+/*
+ * Design tokens
+ * -------------
+ * In Tailwind v4, @theme variables are resolved at build time, so values
+ * must be static — var() references to other CSS variables won't work here.
+ * Light mode values are set directly on @theme. Dark mode overrides live
+ * in @layer base using the same variable names, which Tailwind will pick up
+ * when the .dark class is present.
+ */
+@theme {
+    --color-background:             oklch(1 0 0);
+    --color-foreground:             oklch(0.141 0.005 285.823);
+    --color-muted:                  oklch(0.967 0.001 286.375);
+    --color-muted-foreground:       oklch(0.552 0.016 285.938);
+    --color-border:                 oklch(0.92 0.004 286.32);
+    --color-ring:                   oklch(0.141 0.005 285.823);
+    --color-primary:                oklch(0.21 0.006 285.885);
+    --color-primary-foreground:     oklch(0.985 0 0);
+    --color-secondary:              oklch(0.967 0.001 286.375);
+    --color-secondary-foreground:   oklch(0.21 0.006 285.885);
+    --color-accent:                 oklch(0.967 0.001 286.375);
+    --color-accent-foreground:      oklch(0.21 0.006 285.885);
+    --color-destructive:            oklch(0.577 0.245 27.325);
+    --color-destructive-foreground: oklch(0.985 0 0);
+}
+
+/*
+ * Dark mode overrides
+ * -------------------
+ * Reassign the same @theme variable names under .dark so Tailwind utilities
+ * automatically reflect the dark values when the class is present.
+ */
+@layer base {
+    .dark {
+        --color-background:             oklch(0.141 0.005 285.823);
+        --color-foreground:             oklch(0.985 0 0);
+        --color-muted:                  oklch(0.21 0.006 285.885);
+        --color-muted-foreground:       oklch(0.552 0.016 285.938);
+        --color-border:                 oklch(0.274 0.006 286.033);
+        --color-ring:                   oklch(0.871 0.006 286.286);
+        --color-primary:                oklch(0.985 0 0);
+        --color-primary-foreground:     oklch(0.21 0.006 285.885);
+        --color-secondary:              oklch(0.21 0.006 285.885);
+        --color-secondary-foreground:   oklch(0.985 0 0);
+        --color-accent:                 oklch(0.21 0.006 285.885);
+        --color-accent-foreground:      oklch(0.985 0 0);
+        --color-destructive:            oklch(0.396 0.141 25.723);
+        --color-destructive-foreground: oklch(0.985 0 0);
+    }
+}
+
+@import "./ui/accordion.css";
+@import "./ui/avatar.css";

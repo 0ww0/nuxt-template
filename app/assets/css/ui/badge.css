@@ -1,0 +1,140 @@
+@layer customs {
+    @layer sizes {
+        .badge-8 {
+            @apply h-5 px-1.5 text-[10px] gap-1;
+        }
+
+        .badge-10 {
+            @apply h-6 px-2 text-[11px] gap-1.5;
+        }
+
+        .badge-12 {
+            @apply h-6 px-2.5 text-xs gap-1.5;
+        }
+
+        .badge-14 {
+            @apply h-7 px-3 text-sm gap-2;
+        }
+
+        .badge-16 {
+            @apply h-8 px-3.5 text-base gap-2.5;
+        }
+    }
+
+    @layer colors {
+        .badge-neutral {
+            --badge-primary: var(--color-neutral-900);
+            --badge-on-primary: var(--color-neutral-50);
+            --badge-muted: var(--color-neutral-100);
+            --badge-on-muted: var(--color-neutral-900);
+            --badge-border: var(--color-neutral-200);
+
+            @variant dark {
+                --badge-primary: var(--color-neutral-50);
+                --badge-on-primary: var(--color-neutral-950);
+                --badge-muted: var(--color-neutral-800);
+                --badge-on-muted: var(--color-neutral-100);
+                --badge-border: var(--color-neutral-700);
+            }
+        }
+
+        .badge-info {
+            --badge-primary: var(--color-sky-600);
+            --badge-on-primary: var(--color-white);
+            --badge-muted: var(--color-sky-100);
+            --badge-on-muted: var(--color-sky-700);
+            --badge-border: var(--color-sky-200);
+
+            @variant dark {
+                --badge-primary: var(--color-sky-500);
+                --badge-on-primary: var(--color-sky-950);
+                --badge-muted: color-mix(in srgb, var(--color-sky-950), transparent 20%);
+                --badge-on-muted: var(--color-sky-300);
+                --badge-border: var(--color-sky-900);
+            }
+        }
+
+        .badge-success {
+            --badge-primary: var(--color-emerald-600);
+            --badge-on-primary: var(--color-white);
+            --badge-muted: var(--color-emerald-100);
+            --badge-on-muted: var(--color-emerald-700);
+            --badge-border: var(--color-emerald-200);
+
+            @variant dark {
+                --badge-primary: var(--color-emerald-500);
+                --badge-on-primary: var(--color-emerald-950);
+                --badge-muted: color-mix(in srgb, var(--color-emerald-950), transparent 20%);
+                --badge-on-muted: var(--color-emerald-300);
+                --badge-border: var(--color-emerald-900);
+            }
+        }
+
+        .badge-warning {
+            --badge-primary: var(--color-amber-500);
+            --badge-on-primary: var(--color-white);
+            --badge-muted: var(--color-amber-100);
+            --badge-on-muted: var(--color-amber-700);
+            --badge-border: var(--color-amber-200);
+
+            @variant dark {
+                --badge-primary: var(--color-amber-400);
+                --badge-on-primary: var(--color-amber-950);
+                --badge-muted: color-mix(in srgb, var(--color-amber-950), transparent 20%);
+                --badge-on-muted: var(--color-amber-300);
+                --badge-border: var(--color-amber-900);
+            }
+        }
+
+        .badge-error {
+            --badge-primary: var(--color-red-600);
+            --badge-on-primary: var(--color-white);
+            --badge-muted: var(--color-red-100);
+            --badge-on-muted: var(--color-red-700);
+            --badge-border: var(--color-red-200);
+
+            @variant dark {
+                --badge-primary: var(--color-red-500);
+                --badge-on-primary: var(--color-red-950);
+                --badge-muted: color-mix(in srgb, var(--color-red-950), transparent 20%);
+                --badge-on-muted: var(--color-red-300);
+                --badge-border: var(--color-red-900);
+            }
+        }
+    }
+
+    @layer variants {
+        .badge-default {
+            background-color: var(--badge-primary);
+            color: var(--badge-on-primary);
+            @apply border-transparent;
+        }
+
+        .badge-outline {
+            @apply bg-transparent;
+            color: var(--badge-primary);
+            border-color: var(--badge-border);
+        }
+
+        .badge-dash {
+            @apply bg-transparent border-dashed;
+            color: var(--badge-primary);
+            border-color: var(--badge-border);
+        }
+
+        .badge-soft {
+            background-color: var(--badge-muted);
+            color: var(--badge-on-muted);
+            @apply border-transparent;
+        }
+
+        .badge-ghost {
+            @apply bg-transparent border-transparent;
+            color: var(--badge-primary);
+
+            &:hover {
+                background-color: var(--badge-muted);
+            }
+        }
+    }
+}
