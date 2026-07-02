@@ -32,41 +32,44 @@ export const rateLimitAttemptRepository = {
    * @returns         The updated row with the new count.
    */
   async hit(bucket: string, windowMs: number): Promise<RateLimitAttempt> {
-    const t = schema.rateLimitAttempts
-    const now = new Date()
+  const t = schema.rateLimitAttempts
+  const now = new Date()
 
-    const [row] = await db
-      .insert(t)
-      .values({ bucket, count: 1, windowStart: now, blockedUntil: null })
-      .onConflictDoUpdate({
-        target: t.bucket,
-        set: {
-          // If window expired → reset to 1; else → increment.
-          count: sql`CASE
-            WHEN ${t.windowStart} + make_interval(secs => ${windowMs}::double precision / 1000)
-                 <= now()
-            THEN 1
-            ELSE ${t.count} + 1
-          END`,
-          // If window expired → new window starts now; else → keep existing.
-          windowStart: sql`CASE
-            WHEN ${t.windowStart} + make_interval(secs => ${windowMs}::double precision / 1000)
-                 <= now()
-            THEN now()
-            ELSE ${t.windowStart}
-          END`,
-          // Always clear any previous lockout when recording a hit within a
-          // (possibly new) window — the service will re-lock if count exceeds
-          // the threshold.
-          blockedUntil: sql`CASE
-            WHEN ${t.windowStart} + make_interval(secs => ${windowMs}::double precision / 1000)
-                 <= now()
-            THEN NULL
-            ELSE ${t.blockedUntil}
-          END`,
-        },
-      })
-      .returning()
+  const [row] = await db
+    .insert(t)
+    .values({ bucket, count: 1, windowStart: now, blockedUntil: null })
+    .onConflictDoUpdate({
+      target: t.bucket,
+      set: {
+        // If window expired → reset to 1; else → increment.
+        count: sql`CASE
+          WHEN ${t.windowStart} + make_interval(secs => ${windowMs}::double precision / 1000)
+               <= now()
+          THEN 1
+          ELSE ${t.count} + 1
+        END`,
+        // If window expired → new window starts now; else → keep existing.
+        windowStart: sql`CASE
+          WHEN ${t.windowStart} + make_interval(secs => ${windowMs}::double precision / 1000)
+               <= now()
+          THEN now()
+          ELSE ${t.windowStart}
+        END`,
+        // An active lock always wins, regardless of window state — lockoutMs
+        // can outlast windowMs (e.g. mfa-send/mfa-verify: 10-min window,
+        // 30-min lockout), so "window expired" must NOT clear a still-active
+        // block. Only once the lock itself has expired do we fall through to
+        // clearing it on window expiry.
+        blockedUntil: sql`CASE
+          WHEN ${t.blockedUntil} > now() THEN ${t.blockedUntil}
+          WHEN ${t.windowStart} + make_interval(secs => ${windowMs}::double precision / 1000)
+               <= now()
+          THEN NULL
+          ELSE ${t.blockedUntil}
+        END`,
+      },
+    })
+    .returning()
     return row! // upsert always yields one row
   },
 

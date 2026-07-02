@@ -34,9 +34,10 @@ export const rateLimitService = {
 
     // ── Fast path: already locked out? ──────────────────────────────
     // Read-only check — avoids the write cost when the bucket is
-    // already blocked. This is purely an optimisation; correctness
-    // does NOT depend on it (the hit() upsert preserves blockedUntil
-    // when the window hasn't expired).
+    // already blocked. This is purely an optimisation; correctness does
+    // NOT depend on it — the hit() upsert's blockedUntil CASE checks
+    // `blockedUntil > now()` before it checks window expiry, so an
+    // active lock survives window rollover even when lockoutMs > windowMs.
     const existing = await rateLimitAttemptRepository.findByBucket(bucket)
     if (existing?.blockedUntil && existing.blockedUntil > new Date()) {
       return { allowed: false, retryAfter: existing.blockedUntil }
