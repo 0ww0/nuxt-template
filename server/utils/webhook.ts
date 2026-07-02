@@ -4,10 +4,13 @@
 // Third-party services (Stripe, GitHub, etc.) sign their payloads with a
 // shared secret using HMAC-SHA256. Every webhook handler must call
 // `requireWebhookSignature(event)` at the top to verify the signature
-// before processing the payload.
+// before processing the payload. This is the ONLY signature check in the
+// request pipeline — the CSRF middleware exemption for /api/webhooks does
+// not check any header itself, so there is nothing to keep in sync here.
 //
 // The default header is `x-webhook-signature`, but callers can override it
-// per-provider (e.g. Stripe uses `stripe-signature`).
+// per-provider (e.g. Stripe uses `stripe-signature`, GitHub uses
+// `x-hub-signature-256`).
 
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { H3Event } from 'h3'
