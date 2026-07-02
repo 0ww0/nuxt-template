@@ -56,13 +56,16 @@ export const mfaPreAuthService = {
     return record.userId
   },
 
-  // Validate + burn in one call. Called by mfa/verify AFTER verifyCode succeeds
-  // so the pre-auth cookie can't be reused for a second session. Never call this
-  // on a failed OTP attempt — use validateToken on entry instead.
+  // Burn the pre-auth token if it still exists. Called by mfa/verify AFTER
+  // verifyCode succeeds, so both factors (password + OTP) are already proven.
+  // Idempotent by design: a vanished record (TTL expiry mid-request, or a
+  // concurrent login in another tab burning it via issueToken's
+  // deleteByUserId) means there's nothing left to replay — that is a success
+  // condition here, not an error. Never throws.
   async consumeToken(rawToken: string | undefined): Promise<void> {
-    if (!rawToken) throw unauthorized('MFA session expired or missing — please log in again')
+    if (!rawToken) return
     const record = await mfaPreAuthTokenRepository.findUsableByHash(sha256(rawToken))
-    if (!record) throw unauthorized('MFA session expired or missing — please log in again')
+    if (!record) return
     await mfaPreAuthTokenRepository.deleteByUserId(record.userId)
   },
 }

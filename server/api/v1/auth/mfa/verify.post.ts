@@ -46,7 +46,10 @@ export default defineEventHandler(async (event) => {
   // leaves the pre-auth cookie alive so the user can retry with the correct code.
   const { user, session } = await mfaService.verifyCode(userId, code)
 
-  // OTP verified — burn the pre-auth token now so it cannot be replayed.
+  // OTP verified — burn the pre-auth token if it's still there. consumeToken
+  // is idempotent and never throws: both factors are proven at this point, so
+  // a token that's already gone (TTL race or a concurrent login) is fine —
+  // there's nothing left to replay.
   await mfaPreAuthService.consumeToken(rawToken)
   deleteCookie(event, 'mfa_preauth', { path: '/api/v1/auth/mfa' })
   setSessionCookie(event, session.token, session.expiresAt)
