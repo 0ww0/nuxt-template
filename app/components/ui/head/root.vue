@@ -1,9 +1,11 @@
 <script lang="ts" setup>
+const config = useConfig();
+
 useHead({
   title: 'Nuxt Template',
   titleTemplate: '%s - Nuxt Template',
   htmlAttrs: {
-    lang: 'en'
+    lang: config.value.locale,
   },
   meta: [
     { charset: 'utf-8' },

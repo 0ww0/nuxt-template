@@ -1,7 +1,7 @@
 import type { Preview } from '@storybook/vue3-vite';
 import { setup } from '@storybook/vue3';
+import { h } from 'vue';
 import './css/tailwind.css';
-import { t } from 'vue-router/dist/options-_KKPn1xZ.mjs';
 
 // 1. Setup Nuxt-specific mocks for Storybook's isolated Vue app
 setup((app) => {
@@ -16,7 +16,6 @@ setup((app) => {
     methods: {
       onClick(this: any, event: MouseEvent) {
         event.preventDefault();
-        // Log the link navigation trigger to the console
         console.log('[NuxtLink Clicked]', this.to);
       },
     },
@@ -26,6 +25,35 @@ setup((app) => {
   // Mock <ClientOnly> component
   app.component('ClientOnly', {
     template: '<slot />'
+  });
+
+  // Mock <Icon> — Nuxt auto-imports this globally via nuxt-icon / @iconify,
+  // but Storybook has no Nuxt layer. Renders an inline SVG chevron by default
+  // so AccordionTrigger (and any other component using <Icon>) renders correctly.
+  // The `name` prop is accepted but ignored — add cases here if other icons are needed.
+  app.component('Icon', {
+    props: {
+      name: { type: String, default: '' },
+      class: { type: String, default: '' },
+    },
+    setup(props) {
+      // Renders a simple chevron-down that matches ri:arrow-down-s-line visually
+      return () => h(
+        'svg',
+        {
+          xmlns: 'http://www.w3.org/2000/svg',
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          'stroke-width': '2',
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          class: props.class,
+          'aria-hidden': 'true',
+        },
+        [h('polyline', { points: '6 9 12 15 18 9' })],
+      );
+    },
   });
 });
 

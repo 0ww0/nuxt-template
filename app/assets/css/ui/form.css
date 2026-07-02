@@ -1,0 +1,21 @@
+@layer customs {
+    .form-item {
+        @apply flex flex-col gap-2;
+    }
+
+    .form-label {
+        @apply text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70;
+    }
+
+    .form-label-error {
+        @apply text-destructive;
+    }
+
+    .form-message {
+        @apply text-xs font-medium text-destructive;
+    }
+
+    .form-description {
+        @apply text-xs text-muted-foreground;
+    }
+}

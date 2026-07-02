@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url'
 export default defineNuxtConfig({
   alias: {
     "@": fileURLToPath(new URL("./app", import.meta.url)),
+    "@components": fileURLToPath(new URL("./app/components", import.meta.url)),
+    "@composables": fileURLToPath(new URL("./app/composables", import.meta.url)),
+    "@utils": fileURLToPath(new URL("./app/utils", import.meta.url)),
     "@shared": fileURLToPath(new URL("./shared", import.meta.url)),
     "@server": fileURLToPath(new URL("./server", import.meta.url)),
     "#images": fileURLToPath(new URL("./app/assets/images", import.meta.url)),
@@ -61,6 +64,7 @@ export default defineNuxtConfig({
     }
   },
   runtimeConfig: {
+    sessionSecret: process.env.NUXT_SESSION_SECRET ?? '',
     webhookSecret: process.env.NUXT_WEBHOOK_SECRET ?? '',
     // appUrl is read by auth.service.ts as `useRuntimeConfig().public.appUrl`
     // (email reset/verification links), so it MUST live under `public`. It is

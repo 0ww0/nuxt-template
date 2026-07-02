@@ -1,0 +1,106 @@
+@layer customs {
+    .divider-root {
+        @apply flex items-center w-full gap-4;
+        color: var(--divider-primary);
+    }
+
+    .divider-text {
+        @apply whitespace-nowrap text-sm font-medium;
+        /* Text color inherits from root, which is set to --divider-primary */
+    }
+
+    .divider-root:not(:empty) {
+        @apply gap-4;
+    }
+    
+    .divider-root:empty {
+        @apply gap-0;
+    }
+
+    @layer colors {
+        .divider-neutral {
+            --divider-primary: var(--color-neutral-500);
+            --divider-border: var(--color-neutral-200);
+
+            @variant dark {
+                --divider-primary: var(--color-neutral-400);
+                --divider-border: var(--color-neutral-800);
+            }
+        }
+
+        .divider-info {
+            --divider-primary: var(--color-sky-500);
+            --divider-border: var(--color-sky-200);
+
+            @variant dark {
+                --divider-primary: var(--color-sky-400);
+                --divider-border: var(--color-sky-800);
+            }
+        }
+
+        .divider-success {
+            --divider-primary: var(--color-emerald-500);
+            --divider-border: var(--color-emerald-200);
+
+            @variant dark {
+                --divider-primary: var(--color-emerald-400);
+                --divider-border: var(--color-emerald-800);
+            }
+        }
+
+        .divider-warning {
+            --divider-primary: var(--color-amber-500);
+            --divider-border: var(--color-amber-200);
+
+            @variant dark {
+                --divider-primary: var(--color-amber-400);
+                --divider-border: var(--color-amber-800);
+            }
+        }
+
+        .divider-error {
+            --divider-primary: var(--color-red-500);
+            --divider-border: var(--color-red-200);
+
+            @variant dark {
+                --divider-primary: var(--color-red-400);
+                --divider-border: var(--color-red-800);
+            }
+        }
+    }
+
+    @layer directions {
+        .divider-horizontal::before,
+        .divider-horizontal::after {
+            content: "";
+            @apply h-[2px] w-full flex-1;
+            background-color: var(--divider-border);
+        }
+
+        /* Vertical Lines */
+        .divider-vertical {
+            @apply inline-flex flex-col h-full w-auto gap-4;
+        }
+
+        .divider-vertical::before,
+        .divider-vertical::after {
+            content: "";
+            @apply w-[2px] h-full flex-1;
+            background-color: var(--divider-border);
+        }
+
+        .divider-vertical .divider-text {
+            @apply [writing-mode:vertical-lr];
+        }
+    }
+
+    @layer placements {
+        .divider-start::before {
+            @apply grow-0 w-8;
+        }
+        
+        .divider-end::after {
+            @apply grow-0 w-8;
+        }
+    }
+}

@@ -1,0 +1,49 @@
+@layer accordion {
+    .accordion-root {
+        @apply flex flex-col gap-2 w-full;
+    }
+
+    .accordion-item {
+        @apply border-b border-border transition-colors;
+
+        &[data-state="open"] {
+            @apply border-ring;
+        }
+    }
+
+    .accordion-trigger {
+        @apply w-full flex items-center p-4 gap-2 text-left font-medium transition-all;
+        @apply hover:underline disabled:no-underline disabled:opacity-50 disabled:cursor-not-allowed;
+        @apply text-foreground;
+
+        &[data-state="open"] {
+            @apply text-foreground;
+        }
+    }
+
+    .accordion-content {
+        @apply overflow-hidden text-sm;
+    }
+
+    /* Grid animation: 0fr -> 1fr is calculable unlike height: 0 -> auto.
+       The inner div sits inside a single grid row so it can expand/collapse
+       smoothly. v-show hides the outer element; data-state drives the animation. */
+    .accordion-content-inner {
+        display: grid;
+        grid-template-rows: 0fr;
+        transition: grid-template-rows 300ms ease-out;
+
+        [data-state="open"] > & {
+            grid-template-rows: 1fr;
+        }
+    }
+
+    /* overflow: hidden clips the content during the grid row animation */
+    .accordion-content-wrapper {
+        @apply overflow-hidden px-4 pb-4 pt-0 text-muted-foreground;
+    }
+
+    .accordion-icon {
+        @apply w-4 h-4 transition-transform duration-300;
+    }
+}
