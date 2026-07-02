@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { inject } from 'vue';
 import { mergeClassNames } from '@utils/mergeClassNames';
-import { AlertContextKey } from '@/types/alert.types';
+import { AlertContextKey } from './alert.types';
 
 const alertContext = inject(AlertContextKey);
 

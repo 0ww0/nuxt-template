@@ -2,7 +2,7 @@
 import { provide } from 'vue';
 import { useConfig } from '@composables/useConfig';
 import { mergeClassNames } from '@utils/mergeClassNames';
-import { AlertContextKey, type AlertColor, type AlertVariant, type AlertDirection } from '@/types/alert.types';
+import { AlertContextKey, type AlertColor, type AlertVariant, type AlertDirection } from './alert.types';
 
 interface AlertProps {
 	as?: string;
@@ -22,8 +22,8 @@ const config = useConfig();
 
 // Generated once per root instance via ConfigProvider's SSR-safe useId(),
 // same mechanism Accordion uses for aria-controls/aria-labelledby.
-const titleId = config.value.useId();
-const descriptionId = config.value.useId();
+const titleId = config.value.useId?.() ?? '';
+const descriptionId = config.value.useId?.() ?? '';
 
 provide(AlertContextKey, { titleId, descriptionId });
 
